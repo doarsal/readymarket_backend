@@ -202,16 +202,22 @@ class CategoryController extends Controller
     public function show(Category $category): JsonResponse
     {
         try {
-            // Increment visits
-            $category->increment('visits');
-
             // Load products count
             $category->products_count = $category->products()->count();
             $category->active_products_count = $category->activeProducts()->count();
 
+            // Get all attributes including computed ones
+            $categoryData = array_merge($category->getAttributes(), [
+                'products_count' => $category->products_count,
+                'active_products_count' => $category->active_products_count
+            ]);
+
+            // Increment visits after getting the data
+            $category->increment('visits');
+
             return response()->json([
                 'success' => true,
-                'data' => $category,
+                'data' => $categoryData,
                 'message' => 'Category retrieved successfully'
             ]);
         } catch (\Exception $e) {

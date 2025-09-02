@@ -254,8 +254,63 @@ try {
     logMitecResponse('RAW input', file_get_contents('php://input'));
     logMitecResponse('Headers', $_SERVER['HTTP_HOST'] ? 'HTTP headers available' : 'No HTTP headers');
 
-    // Verificar que tenemos una respuesta encriptada
-    if (isset($_POST['strResponse']) && !empty($_POST['strResponse'])) {
+    // Verificar si es una respuesta fake (puede venir por POST['fake_mode'] o si detectamos FAKE en el XML)
+    $isFakeMode = isset($_POST['fake_mode']) && $_POST['fake_mode'] === '1';
+
+    if ($isFakeMode && isset($_POST['xml'])) {
+        // Modo fake con datos en base64 (formato antiguo)
+        logMitecResponse('MODO FAKE DETECTADO - Procesando respuesta simulada (formato base64)');
+
+        // Decodificar datos fake
+        $fakeData = json_decode(base64_decode($_POST['xml']), true);
+
+        $decryptedData = [
+            'r3ds_reference' => $fakeData['reference'],
+            'payment_folio' => $fakeData['reference'],
+            'payment_response' => $fakeData['response'],
+            'payment_auth' => $fakeData['auth'],
+            'cd_response' => $fakeData['cd_response'],
+            'cd_error' => $fakeData['cd_error'],
+            'nb_error' => $fakeData['nb_error'],
+            'time' => $fakeData['time'],
+            'date' => $fakeData['date'],
+            'voucher' => $fakeData['voucher'],
+            'amount' => $fakeData['amount']
+        ];
+
+        $transactionStatus = [
+            'success' => true,
+            'message' => 'Pago fake procesado exitosamente',
+            'response_code' => '00',
+            'auth_code' => $fakeData['auth']
+        ];
+
+        $status = 'success';
+        $decryptedXml = '<!-- FAKE MODE - XML no disponible -->';
+
+        logMitecResponse('Respuesta fake procesada', $decryptedData);
+
+        // *** LLAMAR AL WEBHOOK DE LARAVEL PARA MODO FAKE ***
+        if (!empty($decryptedData)) {
+            $webhookReference = $decryptedData['r3ds_reference'] ?? $decryptedData['payment_folio'] ?? 'unknown';
+            callInternalWebhook($webhookReference, $decryptedXml, $decryptedData, $status);
+
+            // *** REDIRECCIONAR AL FRONTEND DESPUÉS DE PROCESAR FAKE ***
+            $frontendUrl = $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173';
+            $redirectUrl = $frontendUrl . '/payment-result?reference=' . urlencode($webhookReference) . '&status=' . $status;
+
+            logMitecResponse('Redirigiendo al frontend (MODO FAKE)', [
+                'reference' => $webhookReference,
+                'status' => $status,
+                'redirect_url' => $redirectUrl
+            ]);
+
+            header('Location: ' . $redirectUrl);
+            exit;
+        }
+    }
+    // Verificar que tenemos una respuesta encriptada (real o fake encriptada)
+    else if (isset($_POST['strResponse']) && !empty($_POST['strResponse'])) {
 
         $encryptedResponse = $_POST['strResponse'];
         $company = $_POST['strIdCompany'] ?? '';
@@ -267,6 +322,12 @@ try {
         // Desencriptar la respuesta
         $decryptedXml = decryptMitecResponse($encryptedResponse);
         logMitecResponse('XML desencriptado exitosamente', substr($decryptedXml, 0, 200) . '...');
+
+        // Verificar si es una respuesta fake encriptada
+        if (strpos($decryptedXml, 'FAKE_') !== false || $isFakeMode) {
+            logMitecResponse('MODO FAKE DETECTADO - Respuesta encriptada fake');
+            $isFakeMode = true;
+        }
 
         // Parsear el XML
         $decryptedData = parseXmlResponse($decryptedXml);
@@ -282,17 +343,45 @@ try {
         if (!empty($decryptedData)) {
             $webhookReference = $decryptedData['r3ds_reference'] ?? $decryptedData['payment_folio'] ?? 'unknown';
             callInternalWebhook($webhookReference, $decryptedXml, $decryptedData, $status);
+
+            // *** REDIRECCIONAR AL FRONTEND DESPUÉS DE PROCESAR ***
+            $frontendUrl = $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173';
+            $redirectUrl = $frontendUrl . '/payment-result?reference=' . urlencode($webhookReference) . '&status=' . $status;
+
+            logMitecResponse('Redirigiendo al frontend', [
+                'reference' => $webhookReference,
+                'status' => $status,
+                'redirect_url' => $redirectUrl
+            ]);
+
+            header('Location: ' . $redirectUrl);
+            exit;
         }
 
     } else {
         $status = 'waiting';
         logMitecResponse('Esperando respuesta de MITEC - no hay datos POST');
+
+        // Si no hay datos POST, mostrar página de espera/debug
+        // (continúa con la página HTML de debugging)
     }
 
 } catch (Exception $e) {
     $status = 'error';
     $errorMessage = $e->getMessage();
     logMitecResponse('ERROR al procesar respuesta', $errorMessage);
+
+    // Redireccionar al frontend con error
+    $frontendUrl = $_ENV['FRONTEND_URL'] ?? 'http://localhost:5173';
+    $redirectUrl = $frontendUrl . '/payment-result?status=error&error=' . urlencode('PROCESSING_ERROR');
+
+    logMitecResponse('Redirigiendo al frontend por error', [
+        'error' => $errorMessage,
+        'redirect_url' => $redirectUrl
+    ]);
+
+    header('Location: ' . $redirectUrl);
+    exit;
 }
 
 /**

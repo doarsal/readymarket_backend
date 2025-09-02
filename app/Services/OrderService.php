@@ -59,9 +59,9 @@ class OrderService
             // Actualizar la referencia en PaymentResponse
             $paymentResponse->update(['order_id' => $order->id]);
 
-            // Marcar el carrito como completado
+            // Marcar el carrito como convertido y expirarlo
             $cart->update([
-                'status' => 'converted', // Cambiar de 'completed' a 'converted'
+                'status' => 'converted',
                 'expires_at' => now() // Expirarlo inmediatamente
             ]);
 

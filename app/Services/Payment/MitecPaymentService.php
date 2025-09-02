@@ -31,18 +31,34 @@ class MitecPaymentService
      *
      * @param array $paymentData Datos del pago
      * @param int|null $userId ID del usuario (opcional)
-     * @param string|null $cartId ID del carrito (opcional)
+     * @param int|null $cartId ID del carrito (opcional)
      * @return array Resultado del procesamiento
      * @throws ValidationException
      */
-    public function processPayment(array $paymentData, ?int $userId = null, ?string $cartId = null): array
+    public function processPayment(array $paymentData, ?int $userId = null, ?int $cartId = null): array
     {
         try {
             // Validar datos de entrada
             $validatedData = $this->validatePaymentData($paymentData);
 
-            // Registrar inicio de transacción
-            Log::info('Iniciando transacción MITEC', [
+            // Verificar si está en modo fake
+            if (env('MICROSOFT_FAKE_MODE', false)) {
+                Log::info('MITEC: Modo FAKE activado - procesando como transacción normal pero con respuesta simulada', [
+                    'user_id' => $userId,
+                    'cart_id' => $cartId,
+                    'amount' => $validatedData['amount'],
+                    'card_last_four' => substr($validatedData['card_number'], -4)
+                ]);
+
+                // Continuar con el proceso normal para generar el XML y todo
+                // Solo cambiaremos el comportamiento al final
+                $fakeMode = true;
+            } else {
+                $fakeMode = false;
+            }
+
+            // Registrar inicio de transacción real
+            Log::info('Iniciando transacción MITEC REAL', [
                 'user_id' => $userId,
                 'cart_id' => $cartId,
                 'amount' => $validatedData['amount'],
@@ -88,14 +104,22 @@ class MitecPaymentService
             // Construir XML final para formulario
             $formXml = $this->xmlBuilder->buildFormXml($encryptedData);
 
-            // Generar formulario HTML
-            $formHtml = $this->generatePaymentForm($formXml);
-
-            Log::info('MITEC: Formulario generado exitosamente', [
-                'reference' => $transactionData['reference'],
-                'form_html_length' => strlen($formHtml),
-                'has_form_xml' => !empty($formXml)
-            ]);
+            // En modo fake, modificar el formulario para que vaya directamente a response.php con respuesta exitosa
+            if ($fakeMode) {
+                $formHtml = $this->generateFakeSuccessForm($transactionData['reference'], $validatedData);
+                Log::info('MITEC: Formulario FAKE generado exitosamente', [
+                    'reference' => $transactionData['reference'],
+                    'fake_mode' => true
+                ]);
+            } else {
+                // Generar formulario HTML normal
+                $formHtml = $this->generatePaymentForm($formXml);
+                Log::info('MITEC: Formulario generado exitosamente', [
+                    'reference' => $transactionData['reference'],
+                    'form_html_length' => strlen($formHtml),
+                    'has_form_xml' => !empty($formXml)
+                ]);
+            }
 
             // Guardar registro de transacción (opcional)
             if ($userId || $cartId) {
@@ -182,29 +206,14 @@ class MitecPaymentService
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Procesando Pago - MITEC 3DS v2</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-        .loading { margin: 20px 0; }
-        .form-container { max-width: 400px; margin: 0 auto; }
-        .btn { padding: 15px 30px; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        .btn:hover { background: #0056b3; }
-    </style>
 </head>
 <body>
-    <div class="form-container">
-        <h2>Procesando su pago</h2>
-        <div class="loading">Por favor espere...</div>
-        <form id="mitecForm" name="cliente" action="' . $actionUrl . '" method="post">
-            <input type="hidden" name="xml" value="' . $xmlForForm . '">
-            <input class="btn" type="submit" value="Continuar con el pago seguro">
-        </form>
-        <p><small>Será redirigido al sistema de pago seguro de MITEC</small></p>
-    </div>
+    <form id="mitecForm" name="cliente" action="' . $actionUrl . '" method="post" style="display:none;">
+        <input type="hidden" name="xml" value="' . $xmlForForm . '">
+    </form>
     <script>
-        // Auto-submit después de 3 segundos
-        setTimeout(function() {
-            document.getElementById("mitecForm").submit();
-        }, 3000);
+        // Auto-submit inmediatamente
+        document.getElementById("mitecForm").submit();
     </script>
 </body>
 </html>';
@@ -233,10 +242,19 @@ class MitecPaymentService
      * @param array $transactionData Datos de transacción
      * @param array $cardData Datos de tarjeta (sin datos sensibles)
      */
-    protected function saveTransactionLog(?int $userId, ?string $cartId, array $transactionData, array $cardData): void
+    /**
+     * Guarda el log de transacción
+     *
+     * @param int|null $userId ID del usuario
+     * @param int|null $cartId ID del carrito
+     * @param array $transactionData Datos de transacción
+     * @param array $cardData Datos de tarjeta (sin datos sensibles)
+     */
+    protected function saveTransactionLog(?int $userId, ?int $cartId, array $transactionData, array $cardData): void
     {
         try {
-            // Aquí puedes implementar el guardado del log de transacción
+            // Solo logear la información de la transacción
+            // El PaymentSession se crea en el controlador para evitar duplicados
             Log::info('Transacción MITEC iniciada', [
                 'user_id' => $userId,
                 'cart_id' => $cartId,
@@ -247,10 +265,11 @@ class MitecPaymentService
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error guardando log de transacción', [
+            Log::error('Error logueando transacción', [
                 'error' => $e->getMessage(),
                 'user_id' => $userId,
-                'cart_id' => $cartId
+                'cart_id' => $cartId,
+                'reference' => $transactionData['reference'] ?? 'N/A'
             ]);
         }
     }
@@ -272,5 +291,181 @@ class MitecPaymentService
         }
 
         return 'unknown';
+    }
+
+    /**
+     * Simula el flujo completo de pago cuando está en modo fake
+     * Mantiene la misma estructura que el flujo real para no romper el frontend
+     *
+     * @param array $validatedData
+     * @param int|null $userId
+     * @param int|null $cartId
+     * @return array
+     */
+    protected function simulateFakePaymentFlow(array $validatedData, ?int $userId = null, ?int $cartId = null): array
+    {
+        // Generar referencia de transacción fake
+        $fakeReference = 'FAKE_' . strtoupper(uniqid());
+
+        // Crear URL fake que redirigirá automáticamente con éxito
+        $fakeUrl = url('/fake-payment-success/' . $fakeReference);
+
+        // Generar HTML de formulario fake que se auto-submite
+        $formHtml = $this->generateFakePaymentForm($fakeReference, $validatedData);
+
+        // Retornar la misma estructura que el flujo real
+        return [
+            'success' => true,
+            'transaction_reference' => $fakeReference,
+            'form_html' => $formHtml,
+            'mitec_url' => $fakeUrl,
+            'message' => 'Pago fake iniciado correctamente'
+        ];
+    }
+
+    /**
+     * Genera un formulario HTML fake que simula una respuesta exitosa de MITEC
+     * Se auto-envía directamente a response.php con datos de éxito SIN ESTILOS
+     */
+    protected function generateFakeSuccessForm(string $reference, array $validatedData): string
+    {
+        $responseUrl = url('/response.php');
+        $amount = $validatedData['amount'];
+        $cardLast4 = substr($validatedData['card_number'], -4);
+
+        // Generar datos de respuesta fake (usando el formato simple que ya funciona)
+        $fakeResponseData = [
+            'reference' => $reference,
+            'response' => 'approved',
+            'auth' => 'FAKE' . rand(100000, 999999),
+            'cd_response' => '00',
+            'cd_error' => '00',
+            'nb_error' => 'Transaccion Aprobada',
+            'amount' => $amount,
+            'date' => date('Y-m-d'),
+            'time' => date('H:i:s'),
+            'voucher' => 'FAKE_VOUCHER_' . time(),
+            'card_last_four' => $cardLast4
+        ];
+
+        // Crear data encriptada fake (base64 simple para simular)
+        $fakeEncryptedData = base64_encode(json_encode($fakeResponseData));
+
+        // Generar formulario INVISIBLE que se auto-envía inmediatamente
+        return '<!DOCTYPE html>
+<html>
+<head>
+    <title>Procesando...</title>
+</head>
+<body>
+    <form id="fakeForm" method="POST" action="' . $responseUrl . '" style="display:none;">
+        <input type="hidden" name="xml" value="' . $fakeEncryptedData . '">
+        <input type="hidden" name="reference" value="' . $reference . '">
+        <input type="hidden" name="fake_mode" value="1">
+    </form>
+    <script>
+        // Auto-envío inmediato sin mostrar nada
+        document.getElementById("fakeForm").submit();
+    </script>
+</body>
+</html>';
+    }
+
+    /**
+     * Genera un formulario HTML fake que simula el comportamiento de MITEC
+     * Redirige inmediatamente sin mostrar nada al usuario
+     */
+    protected function generateFakePaymentForm(string $reference, array $validatedData): string
+    {
+        $responseUrl = url('/response.php');
+        $amount = $validatedData['amount'];
+        $cardLast4 = substr($validatedData['card_number'], -4);
+
+        // Generar datos de respuesta fake encriptados (simulando MITEC)
+        $fakeResponseData = [
+            'reference' => $reference,
+            'response' => 'approved',
+            'auth' => 'FAKE' . rand(100000, 999999),
+            'cd_response' => '00',
+            'cd_error' => '00',
+            'nb_error' => 'Transaccion Aprobada',
+            'amount' => $amount,
+            'date' => date('Y-m-d'),
+            'time' => date('H:i:s'),
+            'voucher' => 'FAKE_VOUCHER_' . time(),
+            'card_last_four' => $cardLast4
+        ];
+
+        // Crear data encriptada fake (base64 simple para simular)
+        $fakeEncryptedData = base64_encode(json_encode($fakeResponseData));
+
+        return "<!DOCTYPE html><html><head><title>Redirigiendo...</title></head><body><form id='f' method='POST' action='{$responseUrl}'><input name='xml' value='{$fakeEncryptedData}'><input name='reference' value='{$reference}'><input name='fake_mode' value='1'></form><script>document.getElementById('f').submit();</script></body></html>";
+    }
+
+    /**
+     * Simula un pago exitoso cuando está en modo fake (MÉTODO LEGACY - MANTENIDO PARA COMPATIBILIDAD)
+     *
+     * @param array $validatedData
+     * @param int|null $userId
+     * @param int|null $cartId
+     * @return array
+     */
+    protected function simulateFakeSuccessfulPayment(array $validatedData, ?int $userId = null, ?int $cartId = null): array
+    {
+        // Generar referencia de transacción fake
+        $fakeReference = 'FAKE_' . strtoupper(uniqid());
+
+        // Simular datos de respuesta exitosa
+        $fakeResponse = [
+            'success' => true,
+            'message' => 'Pago simulado exitosamente (MODO FAKE)',
+            'transaction_reference' => $fakeReference,
+            'payment_status' => 'success',
+            'payment_method' => 'fake_payment',
+            'amount' => $validatedData['amount'],
+            'currency' => $validatedData['currency'] ?? 'MXN',
+            'auth_code' => 'FAKE' . rand(100000, 999999),
+            'transaction_id' => 'TXN_FAKE_' . time(),
+            'card_last_four' => substr($validatedData['card_number'], -4),
+            'card_type' => $this->detectCardType($validatedData['card_number']),
+            'processed_at' => now()->toDateTimeString(),
+            'fake_mode' => true
+        ];
+
+        // Crear PaymentSession simulada
+        try {
+            $paymentSession = PaymentSession::create([
+                'user_id' => $userId,
+                'cart_id' => $cartId,
+                'transaction_reference' => $fakeReference,
+                'amount' => $validatedData['amount'],
+                'currency' => $validatedData['currency'] ?? 'MXN',
+                'status' => 'completed',
+                'payment_method' => 'fake_payment',
+                'metadata' => json_encode([
+                    'fake_mode' => true,
+                    'card_last_four' => substr($validatedData['card_number'], -4),
+                    'card_type' => $this->detectCardType($validatedData['card_number']),
+                    'auth_code' => $fakeResponse['auth_code'],
+                    'transaction_id' => $fakeResponse['transaction_id']
+                ])
+            ]);
+
+            Log::info('PaymentSession fake creada', [
+                'payment_session_id' => $paymentSession->id,
+                'transaction_reference' => $fakeReference,
+                'user_id' => $userId,
+                'cart_id' => $cartId,
+                'amount' => $validatedData['amount']
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error creando PaymentSession fake', [
+                'error' => $e->getMessage(),
+                'reference' => $fakeReference
+            ]);
+        }
+
+        return $fakeResponse;
     }
 }

@@ -168,82 +168,109 @@ class MicrosoftAccountController extends Controller
             // Registrar actividad de creación
             $this->logActivity('create', $account, 'Cuenta Microsoft creada');
 
-            // Intentar crear en Partner Center
+            // Intentar crear en Partner Center o simular según configuración
             $microsoftIntegrationResult = [
                 'success' => false,
                 'error' => null,
                 'details' => null
             ];
 
-            try {
-                // Preparar datos para Partner Center con domain_concatenated
-                $customerData = array_merge($validated, [
-                    'domain_concatenated' => $account->domain_concatenated,
-                    'culture' => $account->culture ?? 'es-MX'
-                ]);
+            // Verificar si está en modo fake (para pruebas)
+            $fakeMode = env('MICROSOFT_FAKE_MODE', false);
 
-                $customerResult = $this->partnerCenterService->createCustomer($customerData);
+            if ($fakeMode) {
+                // Modo fake para pruebas - simular creación exitosa
+                $fakeMicrosoftId = 'fake-' . uniqid() . '-' . time();
 
                 $account->update([
-                    'microsoft_id' => $customerResult['microsoft_id'],
+                    'microsoft_id' => $fakeMicrosoftId,
                     'is_pending' => false,
                     'is_active' => true,
                 ]);
 
-                // Aceptar acuerdo de Microsoft
-                $this->partnerCenterService->acceptCustomerAgreement(
-                    $customerResult['microsoft_id'],
-                    $customerData
-                );
-
-                // Enviar credenciales por email
-                if (!empty($customerResult['password'])) {
-                    $this->emailService->sendCredentials(
-                        $customerData,
-                        $customerResult['password']
-                    );
-                }
-
                 // Actualizar progreso del usuario
                 $this->updateUserProgress($userId);
 
-                $this->logActivity('activate', $account, 'Cuenta Microsoft activada en Partner Center');
+                $this->logActivity('activate', $account, 'Cuenta Microsoft activada (MODO FAKE)');
 
                 $microsoftIntegrationResult = [
                     'success' => true,
                     'error' => null,
-                    'details' => 'Cuenta creada exitosamente en Microsoft Partner Center'
+                    'details' => 'Cuenta creada exitosamente (MODO FAKE - SIN INTERACCIÓN CON MICROSOFT)'
                 ];
 
-            } catch (\Exception $e) {
-                Log::error('Microsoft Account: Partner Center integration failed', [
-                    'account_id' => $account->id,
-                    'error' => $e->getMessage()
-                ]);
+            } else {
+                // Modo normal - interactuar con Microsoft Partner Center
+                try {
+                    // Preparar datos para Partner Center con domain_concatenated
+                    $customerData = array_merge($validated, [
+                        'domain_concatenated' => $account->domain_concatenated,
+                        'culture' => $account->culture ?? 'es-MX'
+                    ]);
 
-                // La cuenta se mantiene como pendiente para retry posterior
-                $account->update(['is_pending' => true, 'is_active' => false]);
+                    $customerResult = $this->partnerCenterService->createCustomer($customerData);
 
-                // Determinar el tipo de error para dar un mensaje más claro
-                $errorMessage = $e->getMessage();
-                if (strpos($errorMessage, 'NoActiveResellerProgram') !== false) {
+                    $account->update([
+                        'microsoft_id' => $customerResult['microsoft_id'],
+                        'is_pending' => false,
+                        'is_active' => true,
+                    ]);
+
+                    // Aceptar acuerdo de Microsoft
+                    $this->partnerCenterService->acceptCustomerAgreement(
+                        $customerResult['microsoft_id'],
+                        $customerData
+                    );
+
+                    // Enviar credenciales por email
+                    if (!empty($customerResult['password'])) {
+                        $this->emailService->sendCredentials(
+                            $customerData,
+                            $customerResult['password']
+                        );
+                    }
+
+                    // Actualizar progreso del usuario
+                    $this->updateUserProgress($userId);
+
+                    $this->logActivity('activate', $account, 'Cuenta Microsoft activada en Partner Center');
+
                     $microsoftIntegrationResult = [
-                        'success' => false,
-                        'error' => 'RESELLER_PROGRAM_INACTIVE',
-                        'details' => 'La cuenta de Microsoft Partner Center no tiene un programa de revendedor activo. La cuenta se guardó localmente pero no se pudo crear en Microsoft.'
+                        'success' => true,
+                        'error' => null,
+                        'details' => 'Cuenta creada exitosamente en Microsoft Partner Center'
                     ];
-                } elseif (strpos($errorMessage, 'Domain') !== false) {
-                    $microsoftIntegrationResult = [
-                        'success' => false,
-                        'error' => 'DOMAIN_ERROR',
-                        'details' => 'Error relacionado con el dominio. La cuenta se guardó localmente pero no se pudo crear en Microsoft.'
-                    ];
-                } else {
-                    $microsoftIntegrationResult = [
-                        'success' => false,
-                        'error' => 'UNKNOWN_ERROR',
-                        'details' => 'Error desconocido al crear la cuenta en Microsoft: ' . $errorMessage
-                    ];
+
+                } catch (\Exception $e) {
+                    Log::error('Microsoft Account: Partner Center integration failed', [
+                        'account_id' => $account->id,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    // La cuenta se mantiene como pendiente para retry posterior
+                    $account->update(['is_pending' => true, 'is_active' => false]);
+
+                    // Determinar el tipo de error para dar un mensaje más claro
+                    $errorMessage = $e->getMessage();
+                    if (strpos($errorMessage, 'NoActiveResellerProgram') !== false) {
+                        $microsoftIntegrationResult = [
+                            'success' => false,
+                            'error' => 'RESELLER_PROGRAM_INACTIVE',
+                            'details' => 'La cuenta de Microsoft Partner Center no tiene un programa de revendedor activo. La cuenta se guardó localmente pero no se pudo crear en Microsoft.'
+                        ];
+                    } elseif (strpos($errorMessage, 'Domain') !== false) {
+                        $microsoftIntegrationResult = [
+                            'success' => false,
+                            'error' => 'DOMAIN_ERROR',
+                            'details' => 'Error relacionado con el dominio. La cuenta se guardó localmente pero no se pudo crear en Microsoft.'
+                        ];
+                    } else {
+                        $microsoftIntegrationResult = [
+                            'success' => false,
+                            'error' => 'UNKNOWN_ERROR',
+                            'details' => 'Error desconocido al crear la cuenta en Microsoft: ' . $errorMessage
+                        ];
+                    }
                 }
             }
 

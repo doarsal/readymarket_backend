@@ -65,13 +65,14 @@ Route::prefix('v1')->group(function () {
     // Public routes (NO requieren autenticación)
     Route::get('categories', [CategoryController::class, 'index']);
     Route::get('categories/menu', [CategoryController::class, 'menu']);
-    Route::get('categories/{id}', [CategoryController::class, 'show']);
+    Route::get('categories/{category}', [CategoryController::class, 'show']);
     Route::get('categories/{category}/products', [CategoryController::class, 'products']);
     Route::get('products', [ProductController::class, 'index']);
     Route::get('products/popular', [ProductController::class, 'popular']);
     Route::get('products/featured', [ProductController::class, 'featured']);
     Route::get('products/search', [ProductController::class, 'search']);
     Route::get('products/by-product-id/{productId}', [ProductController::class, 'showByProductId']);
+    Route::get('products/detail/{id}', [ProductController::class, 'showDetail']); // Nueva ruta para ID interno
     Route::get('products/{id}', [ProductController::class, 'show']);
 
     // Public activities endpoints
@@ -95,6 +96,13 @@ Route::prefix('v1')->group(function () {
     // MITEC Payment Gateway endpoints públicos
     Route::get('payments/mitec/config', [MitecPaymentController::class, 'getConfig']);
     Route::post('payments/mitec/webhook', [MitecPaymentController::class, 'webhook']);
+
+    // MITEC Callback - Recibe respuesta de MITEC y procesa
+    Route::get('payments/mitec/callback', [MitecPaymentController::class, 'handleCallback']);
+    Route::post('payments/mitec/callback', [MitecPaymentController::class, 'handleCallback']);
+
+    // Consultar estado de pago por referencia
+    Route::get('payments/status/{reference}', [MitecPaymentController::class, 'getPaymentStatus']);
 
     // Public order tracking endpoint (no requiere autenticación)
     Route::get('orders/tracking/{order_number}', [OrderController::class, 'trackByOrderNumber']);
@@ -206,8 +214,8 @@ Route::prefix('v1')->group(function () {
     Route::get('categories/stats', [CategoryController::class, 'getStats']);
     Route::get('categories/by-store/{storeId}', [CategoryController::class, 'getByStore']);
     Route::post('categories', [CategoryController::class, 'store']);
-    Route::put('categories/{id}', [CategoryController::class, 'update']);
-    Route::delete('categories/{id}', [CategoryController::class, 'destroy']);
+    Route::put('categories/{category}', [CategoryController::class, 'update']);
+    Route::delete('categories/{category}', [CategoryController::class, 'destroy']);
 
     // Products endpoints (admin only)
     Route::get('products/stats', [ProductController::class, 'getStats']);
@@ -284,6 +292,8 @@ Route::prefix('v1')->group(function () {
         // MITEC Payment Gateway endpoints (Secure payment processing)
         Route::prefix('payments/mitec')->group(function () {
             Route::post('process', [MitecPaymentController::class, 'processPayment']);
+            Route::get('sessions/{reference}', [MitecPaymentController::class, 'getPaymentSession']);
+            Route::post('process-token', [MitecPaymentController::class, 'processToken']);
             // Nota: status endpoint eliminado - no estaba implementado
         });
 

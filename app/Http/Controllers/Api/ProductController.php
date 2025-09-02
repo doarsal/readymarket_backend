@@ -206,10 +206,8 @@ class ProductController extends ApiController
             \DB::raw('MIN(products.Market) as Market'),
             \DB::raw('MIN(products.Segment) as Segment'),
             \DB::raw('MIN(products.category_id) as category_id'),
-            \DB::raw('MIN(categories.name) as category_name'),
             \DB::raw('MIN(products.UnitPrice) as UnitPrice')
-        ])
-        ->leftJoin('categories', 'products.category_id', '=', 'categories.id');
+        ]);
 
         // Filtros básicos
         $query->where('products.is_active', true)
@@ -297,7 +295,6 @@ class ProductController extends ApiController
                 ],
                 'category' => [
                     'id' => $product->category_id,
-                    'name' => $product->category_name,
                 ],
                 'variants' => $variants->map(function($variant) {
                     return [
@@ -414,6 +411,132 @@ class ProductController extends ApiController
                 'message' => 'Product not found',
                 'error' => $e->getMessage()
             ], 404);
+        }
+    }
+
+    /**
+     * @OA\Get(
+     *     path="/api/v1/products/detail/{id}",
+     *     tags={"Products"},
+     *     summary="Get product details by internal ID",
+     *     description="Returns a specific product with its billing variants by internal ID (idproduct)",
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         description="Product internal ID (idproduct)",
+     *         required=true,
+     *         @OA\Schema(type="integer")
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Product retrieved successfully"
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Product not found"
+     *     )
+     * )
+     */
+    public function showDetail(string $id): JsonResponse
+    {
+        try {
+            \Log::info('ProductController::showDetail called with: ' . $id);
+
+            // Buscar el producto por ID interno (idproduct)
+            $mainProduct = Product::where('idproduct', $id)
+                                ->where('is_active', true)
+                                ->whereNotNull('Id')
+                                ->where('UnitPrice', '>', 0)
+                                ->whereNull('deleted_at')
+                                ->first();
+
+            \Log::info('Found product: ' . ($mainProduct ? 'YES' : 'NO'));
+
+            if (!$mainProduct) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Product not found'
+                ], 404);
+            }
+
+            // Buscar todas las variantes con el mismo SkuId + Id
+            $products = Product::where('SkuId', $mainProduct->SkuId)
+                             ->where('Id', $mainProduct->Id)
+                             ->where('is_active', true)
+                             ->whereNotNull('Id')
+                             ->where('UnitPrice', '>', 0)
+                             ->whereNull('deleted_at')
+                             ->orderBy('UnitPrice', 'asc')
+                             ->get();
+
+            // Crear array de variantes únicas por BillingPlan
+            $variants = [];
+            $seenBillingPlans = [];
+
+            foreach ($products as $product) {
+                $billingPlan = $product->BillingPlan;
+                if (!in_array($billingPlan, $seenBillingPlans)) {
+                    $variants[] = [
+                        'id' => $product->idproduct,
+                        'billing_plan' => $product->BillingPlan,
+                        'unit_price' => $product->UnitPrice,
+                        'erp_price' => $product->ERPPrice,
+                        'term_duration' => $product->TermDuration,
+                        'sku_id' => $product->SkuId,
+                    ];
+                    $seenBillingPlans[] = $billingPlan;
+                }
+            }
+
+            // Obtener información completa de la categoría
+            $category = null;
+            if ($mainProduct->category_id) {
+                $categoryModel = Category::find($mainProduct->category_id);
+                if ($categoryModel) {
+                    $category = [
+                        'id' => $categoryModel->id,
+                        'name' => $categoryModel->name,
+                        'description' => $categoryModel->description,
+                        'image' => $categoryModel->image
+                    ];
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $mainProduct->idproduct,
+                    'title' => $mainProduct->SkuTitle,
+                    'description' => $mainProduct->SkuDescription,
+                    'product_id' => $mainProduct->ProductId,
+                    'sku_id' => $mainProduct->SkuId,
+                    'id_field' => $mainProduct->Id,
+                    'publisher' => $mainProduct->Publisher,
+                    'logo' => $mainProduct->prod_icon,
+                    'screenshots' => [
+                        'screenshot1' => $mainProduct->prod_screenshot1,
+                        'screenshot2' => $mainProduct->prod_screenshot2,
+                        'screenshot3' => $mainProduct->prod_screenshot3,
+                        'screenshot4' => $mainProduct->prod_screenshot4,
+                    ],
+                    'details' => [
+                        'term_duration' => $mainProduct->TermDuration,
+                        'billing_plan' => $mainProduct->BillingPlan,
+                        'market' => $mainProduct->Market,
+                        'segment' => $mainProduct->Segment,
+                    ],
+                    'category' => $category,
+                    'variants' => $variants,
+                ],
+                'message' => 'Product with variants retrieved successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error retrieving product details',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 

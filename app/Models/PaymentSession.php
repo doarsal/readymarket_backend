@@ -56,7 +56,7 @@ class PaymentSession extends Model
     /**
      * Crea una nueva sesión de pago con expiración de 10 minutos
      */
-    public static function createForPayment(string $transactionReference, string $formHtml, string $mitecUrl, ?int $userId = null, ?string $cartId = null): self
+    public static function createForPayment(string $transactionReference, string $formHtml, string $mitecUrl, ?int $userId = null, ?int $cartId = null): self
     {
         // Validar que los datos requeridos no estén vacíos
         if (empty($transactionReference)) {
