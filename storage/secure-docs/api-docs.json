@@ -1351,6 +1351,40 @@
                 }
             }
         },
+        "/api/v1/auth/forgot-password": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Send password reset email",
+                "description": "Send password reset link to user email",
+                "operationId": "6e1075f86c4e9bf1030edadbf4480939",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Password reset email sent"
+                    }
+                }
+            }
+        },
         "/api/v1/billing-information": {
             "get": {
                 "tags": [
