@@ -169,8 +169,20 @@ class MicrosoftAccountController extends Controller
             $this->logActivity('create', $account, 'Cuenta Microsoft creada');
 
             // Intentar crear en Partner Center
+            $microsoftIntegrationResult = [
+                'success' => false,
+                'error' => null,
+                'details' => null
+            ];
+
             try {
-                $customerResult = $this->partnerCenterService->createCustomer($validated);
+                // Preparar datos para Partner Center con domain_concatenated
+                $customerData = array_merge($validated, [
+                    'domain_concatenated' => $account->domain_concatenated,
+                    'culture' => $account->culture ?? 'es-MX'
+                ]);
+
+                $customerResult = $this->partnerCenterService->createCustomer($customerData);
 
                 $account->update([
                     'microsoft_id' => $customerResult['microsoft_id'],
@@ -181,13 +193,13 @@ class MicrosoftAccountController extends Controller
                 // Aceptar acuerdo de Microsoft
                 $this->partnerCenterService->acceptCustomerAgreement(
                     $customerResult['microsoft_id'],
-                    $validated
+                    $customerData
                 );
 
                 // Enviar credenciales por email
                 if (!empty($customerResult['password'])) {
                     $this->emailService->sendCredentials(
-                        $validated,
+                        $customerData,
                         $customerResult['password']
                     );
                 }
@@ -197,6 +209,12 @@ class MicrosoftAccountController extends Controller
 
                 $this->logActivity('activate', $account, 'Cuenta Microsoft activada en Partner Center');
 
+                $microsoftIntegrationResult = [
+                    'success' => true,
+                    'error' => null,
+                    'details' => 'Cuenta creada exitosamente en Microsoft Partner Center'
+                ];
+
             } catch (\Exception $e) {
                 Log::error('Microsoft Account: Partner Center integration failed', [
                     'account_id' => $account->id,
@@ -205,17 +223,48 @@ class MicrosoftAccountController extends Controller
 
                 // La cuenta se mantiene como pendiente para retry posterior
                 $account->update(['is_pending' => true, 'is_active' => false]);
+
+                // Determinar el tipo de error para dar un mensaje más claro
+                $errorMessage = $e->getMessage();
+                if (strpos($errorMessage, 'NoActiveResellerProgram') !== false) {
+                    $microsoftIntegrationResult = [
+                        'success' => false,
+                        'error' => 'RESELLER_PROGRAM_INACTIVE',
+                        'details' => 'La cuenta de Microsoft Partner Center no tiene un programa de revendedor activo. La cuenta se guardó localmente pero no se pudo crear en Microsoft.'
+                    ];
+                } elseif (strpos($errorMessage, 'Domain') !== false) {
+                    $microsoftIntegrationResult = [
+                        'success' => false,
+                        'error' => 'DOMAIN_ERROR',
+                        'details' => 'Error relacionado con el dominio. La cuenta se guardó localmente pero no se pudo crear en Microsoft.'
+                    ];
+                } else {
+                    $microsoftIntegrationResult = [
+                        'success' => false,
+                        'error' => 'UNKNOWN_ERROR',
+                        'details' => 'Error desconocido al crear la cuenta en Microsoft: ' . $errorMessage
+                    ];
+                }
             }
 
             DB::commit();
 
-            return response()->json([
+            // Preparar respuesta detallada
+            $responseData = [
                 'success' => true,
                 'data' => new MicrosoftAccountResource($account->fresh()),
-                'message' => $account->is_active
-                    ? 'Cuenta Microsoft creada correctamente'
-                    : 'Cuenta creada, verificación pendiente'
-            ], 201);
+                'microsoft_integration' => $microsoftIntegrationResult
+            ];
+
+            if ($microsoftIntegrationResult['success']) {
+                $responseData['message'] = 'Cuenta Microsoft creada exitosamente en la base de datos y en Microsoft Partner Center';
+                $responseData['status'] = 'COMPLETE_SUCCESS';
+            } else {
+                $responseData['message'] = 'Cuenta Microsoft guardada en la base de datos, pero falló la integración con Microsoft Partner Center';
+                $responseData['status'] = 'PARTIAL_SUCCESS';
+            }
+
+            return response()->json($responseData, 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -703,6 +752,218 @@ class MicrosoftAccountController extends Controller
             Log::error('Microsoft Account: Failed to update user progress', [
                 'user_id' => $userId,
                 'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/microsoft-accounts/{id}/retry",
+     *     tags={"Microsoft Accounts"},
+     *     summary="Retry Microsoft account creation",
+     *     description="Retry creating a Microsoft account in Partner Center for a pending account",
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         description="Microsoft account ID",
+     *         required=true,
+     *         @OA\Schema(type="integer")
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Retry operation completed",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", enum={"COMPLETE_SUCCESS", "PARTIAL_SUCCESS", "COMPLETE_FAILURE"}),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="data", ref="#/components/schemas/MicrosoftAccount"),
+     *             @OA\Property(property="microsoft_integration", type="object",
+     *                 @OA\Property(property="success", type="boolean"),
+     *                 @OA\Property(property="details", type="string"),
+     *                 @OA\Property(property="error_code", type="string", nullable=true)
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Microsoft account not found"
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Account is not in pending status"
+     *     )
+     * )
+     */
+    public function retry(int $id): JsonResponse
+    {
+        $user = auth()->user();
+
+        $microsoftAccount = MicrosoftAccount::where('user_id', $user->id)
+            ->where('id', $id)
+            ->first();
+
+        if (!$microsoftAccount) {
+            return response()->json([
+                'status' => 'COMPLETE_FAILURE',
+                'message' => 'Cuenta Microsoft no encontrada'
+            ], 404);
+        }
+
+        // Verificar que la cuenta esté en estado pendiente
+        if (!$microsoftAccount->is_pending) {
+            return response()->json([
+                'status' => 'COMPLETE_FAILURE',
+                'message' => 'Esta cuenta no está en estado pendiente. Solo las cuentas pendientes pueden ser reintentadas.',
+                'microsoft_integration' => [
+                    'success' => false,
+                    'details' => 'La cuenta debe estar en estado pendiente para poder reintentar la creación en Microsoft Partner Center.',
+                    'error_code' => 'NOT_PENDING'
+                ]
+            ], 422);
+        }
+
+        Log::info('Microsoft Account: Retrying Partner Center creation', [
+            'account_id' => $microsoftAccount->id,
+            'user_id' => $user->id,
+            'organization' => $microsoftAccount->organization,
+            'domain' => $microsoftAccount->domain
+        ]);
+
+        // Intentar crear en Microsoft Partner Center
+        $microsoftIntegrationResult = [
+            'success' => false,
+            'details' => '',
+            'error_code' => null
+        ];
+
+        try {
+            // Preparar datos para Partner Center
+            $partnerCenterData = [
+                'domain_concatenated' => $microsoftAccount->domain_concatenated ?? ($microsoftAccount->domain . '.onmicrosoft.com'),
+                'email' => $microsoftAccount->email,
+                'organization' => $microsoftAccount->organization,
+                'first_name' => $microsoftAccount->first_name,
+                'last_name' => $microsoftAccount->last_name,
+                'phone' => $microsoftAccount->phone ?: '+52 555 000 0000',
+                'address' => $microsoftAccount->address ?: 'Sin dirección especificada',
+                'city' => $microsoftAccount->city ?: 'Sin ciudad',
+                'state_code' => $microsoftAccount->state_code ?: 'MX',
+                'postal_code' => $microsoftAccount->postal_code ?: '00000',
+                'country_code' => $microsoftAccount->country_code ?: 'MX',
+                'language_code' => $microsoftAccount->language_code ?: 'es',
+                'culture' => $microsoftAccount->culture ?: 'es-MX'
+            ];
+
+            Log::info('Microsoft Account: Retry - Calling Partner Center service', [
+                'account_id' => $microsoftAccount->id,
+                'partner_center_data' => $partnerCenterData
+            ]);
+
+            $result = $this->partnerCenterService->createCustomer($partnerCenterData);
+
+            if ($result['success']) {
+                // Éxito completo - actualizar cuenta
+                $microsoftAccount->update([
+                    'is_pending' => false,
+                    'is_active' => true,
+                    'microsoft_customer_id' => $result['data']['id'] ?? null,
+                    'tenant_id' => $result['data']['companyProfile']['tenantId'] ?? null,
+                    'updated_at' => now()
+                ]);
+
+                $microsoftIntegrationResult = [
+                    'success' => true,
+                    'details' => 'Cuenta Microsoft creada exitosamente en Partner Center.',
+                    'error_code' => null
+                ];
+
+                Log::info('Microsoft Account: Retry successful', [
+                    'account_id' => $microsoftAccount->id,
+                    'microsoft_customer_id' => $result['data']['id'] ?? null
+                ]);
+
+                return response()->json([
+                    'status' => 'COMPLETE_SUCCESS',
+                    'message' => 'Cuenta Microsoft creada exitosamente',
+                    'data' => new MicrosoftAccountResource($microsoftAccount->fresh()),
+                    'microsoft_integration' => $microsoftIntegrationResult
+                ]);
+
+            } else {
+                // Error en Partner Center - mantener como pendiente pero registrar el error
+                $errorCode = 'UNKNOWN_ERROR';
+                $errorDetails = $result['error'] ?? 'Error desconocido en Partner Center';
+                $originalError = $errorDetails; // Mantener el error original de Microsoft
+
+                if (strpos($errorDetails, 'NoActiveResellerProgram') !== false ||
+                    strpos($errorDetails, '600103') !== false) {
+                    $errorCode = 'RESELLER_PROGRAM_INACTIVE';
+                    $errorDetails = 'El programa de revendedor de Microsoft no está activo. Contacte al administrador.';
+                } elseif (strpos($errorDetails, '600092') !== false ||
+                          strpos($errorDetails, 'Enter a valid name') !== false ||
+                          strpos($errorDetails, 'Test') !== false) {
+                    $errorCode = 'INVALID_NAME';
+                    $errorDetails = 'Microsoft no permite el uso de ciertos nombres como "Test". Por favor, use un nombre real de empresa.';
+                } elseif (strpos(strtolower($errorDetails), 'domain') !== false) {
+                    $errorCode = 'DOMAIN_ERROR';
+                    $errorDetails = 'Error relacionado con el dominio. Verifique que el dominio no esté en uso.';
+                }
+
+                $microsoftIntegrationResult = [
+                    'success' => false,
+                    'details' => $errorDetails,
+                    'error_code' => $errorCode,
+                    'microsoft_original_error' => $originalError // Incluir el error original de Microsoft
+                ];
+
+                Log::warning('Microsoft Account: Retry failed - Partner Center error', [
+                    'account_id' => $microsoftAccount->id,
+                    'error' => $result['error'] ?? 'Unknown error',
+                    'error_code' => $errorCode
+                ]);
+
+                return response()->json([
+                    'status' => 'PARTIAL_SUCCESS',
+                    'message' => 'Cuenta guardada localmente, pero falló la integración con Microsoft',
+                    'data' => new MicrosoftAccountResource($microsoftAccount->fresh()),
+                    'microsoft_integration' => $microsoftIntegrationResult
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Microsoft Account: Retry exception', [
+                'account_id' => $microsoftAccount->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            // Intentar extraer el mensaje específico de Microsoft si está disponible
+            $errorMessage = $e->getMessage();
+            $errorCode = 'INTERNAL_ERROR';
+            $errorDetails = 'Error interno del servidor durante el reintento. Inténtelo más tarde.';
+
+            if (strpos($errorMessage, 'Partner Center API error') !== false) {
+                $errorCode = 'MICROSOFT_API_ERROR';
+                $errorDetails = 'Error del API de Microsoft Partner Center. Verifique los datos e inténtelo más tarde.';
+
+                // Si contiene el error específico de Microsoft, extraerlo
+                if (strpos($errorMessage, '600092') !== false || strpos($errorMessage, 'Enter a valid name') !== false) {
+                    $errorCode = 'INVALID_NAME';
+                    $errorDetails = 'Microsoft no permite el uso de ciertos nombres como "Test". Por favor, use un nombre real de empresa.';
+                }
+            }
+
+            $microsoftIntegrationResult = [
+                'success' => false,
+                'details' => $errorDetails,
+                'error_code' => $errorCode,
+                'microsoft_original_error' => $errorMessage
+            ];
+
+            return response()->json([
+                'status' => 'PARTIAL_SUCCESS',
+                'message' => 'Cuenta existe localmente, pero falló el reintento de integración con Microsoft',
+                'data' => new MicrosoftAccountResource($microsoftAccount->fresh()),
+                'microsoft_integration' => $microsoftIntegrationResult
             ]);
         }
     }
