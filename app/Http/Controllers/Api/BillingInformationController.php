@@ -56,7 +56,7 @@ class BillingInformationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $query = BillingInformation::byUser($user->id);
+        $query = BillingInformation::byUser($user->id)->with(['taxRegime']);
 
         if (!$request->boolean('include_inactive')) {
             $query->active();
@@ -168,7 +168,7 @@ class BillingInformationController extends Controller
     public function show(int $id): JsonResponse
     {
         $user = Auth::user();
-        $billingInfo = BillingInformation::byUser($user->id)->find($id);
+        $billingInfo = BillingInformation::byUser($user->id)->with(['taxRegime'])->find($id);
 
         if (!$billingInfo) {
             return response()->json([

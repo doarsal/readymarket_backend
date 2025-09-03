@@ -69,6 +69,11 @@ class BillingInformation extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function taxRegime()
+    {
+        return $this->belongsTo(TaxRegime::class, 'tax_regime_id');
+    }
+
     public function scopeActive($query)
     {
         return $query->where('active', true);
