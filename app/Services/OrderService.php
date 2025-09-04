@@ -6,6 +6,7 @@ use App\Models\Cart;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\PaymentResponse;
+use App\Models\PaymentSession;
 use App\Models\Currency;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -15,14 +16,17 @@ class OrderService
     /**
      * Crea una orden desde un carrito después de un pago exitoso
      */
-    public function createOrderFromCart(Cart $cart, PaymentResponse $paymentResponse): Order
+    public function createOrderFromCart(Cart $cart, PaymentResponse $paymentResponse, ?PaymentSession $paymentSession = null): Order
     {
-        return DB::transaction(function () use ($cart, $paymentResponse) {
+        return DB::transaction(function () use ($cart, $paymentResponse, $paymentSession) {
 
             Log::info('Creando orden desde carrito', [
                 'cart_id' => $cart->id,
                 'payment_response_id' => $paymentResponse->id,
-                'transaction_reference' => $paymentResponse->transaction_reference
+                'transaction_reference' => $paymentResponse->transaction_reference,
+                'payment_session_id' => $paymentSession?->id,
+                'billing_information_id' => $paymentSession?->billing_information_id,
+                'microsoft_account_id' => $paymentSession?->microsoft_account_id
             ]);
 
             // Crear la orden
@@ -31,6 +35,8 @@ class OrderService
                 'user_id' => $cart->user_id,
                 'cart_id' => $cart->id,
                 'store_id' => $cart->store_id ?? 1, // Default store si es NULL
+                'billing_information_id' => $paymentSession?->billing_information_id,
+                'microsoft_account_id' => $paymentSession?->microsoft_account_id,
                 'status' => 'processing', // Cambiado de pending a processing porque ya se pagó
                 'payment_status' => 'paid',
                 'subtotal' => $cart->subtotal,

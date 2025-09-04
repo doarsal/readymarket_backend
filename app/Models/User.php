@@ -135,6 +135,22 @@ class User extends Authenticatable
     }
 
     /**
+     * Get billing information for the user.
+     */
+    public function billingInformation()
+    {
+        return $this->hasMany(BillingInformation::class)->whereNull('deleted_at');
+    }
+
+    /**
+     * Get Microsoft accounts for the user.
+     */
+    public function microsoftAccounts()
+    {
+        return $this->hasMany(MicrosoftAccount::class)->whereNull('deleted_at');
+    }
+
+    /**
      * Get all permissions for the user through roles.
      */
     public function permissions()

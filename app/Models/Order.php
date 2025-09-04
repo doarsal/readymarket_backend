@@ -17,6 +17,7 @@ class Order extends Model
         'cart_id',
         'store_id',
         'billing_information_id',
+        'microsoft_account_id',
         'status',
         'payment_status',
         'subtotal',
@@ -93,6 +94,11 @@ class Order extends Model
     public function billingInformation(): BelongsTo
     {
         return $this->belongsTo(BillingInformation::class);
+    }
+
+    public function microsoftAccount(): BelongsTo
+    {
+        return $this->belongsTo(MicrosoftAccount::class);
     }
 
     public function currency(): BelongsTo

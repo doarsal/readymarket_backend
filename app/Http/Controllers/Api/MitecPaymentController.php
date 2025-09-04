@@ -89,10 +89,16 @@ class MitecPaymentController extends Controller
             $cartToken = $request->header('X-Cart-Token');
             $cartId = null;
 
+            // Obtener billing_information_id y microsoft_account_id del request
+            $billingInformationId = $request->input('billing_information_id');
+            $microsoftAccountId = $request->input('microsoft_account_id');
+
             Log::info('MITEC: Datos de entrada del request', [
                 'headers' => $request->headers->all(),
                 'cart_token_recibido' => $cartToken ? 'SÍ' : 'NO',
                 'cart_token_hash' => $cartToken ? hash('sha256', $cartToken) : 'N/A',
+                'billing_information_id' => $billingInformationId,
+                'microsoft_account_id' => $microsoftAccountId,
                 'user_id' => $userId
             ]);
 
@@ -152,6 +158,8 @@ class MitecPaymentController extends Controller
                         'transaction_reference' => $result['transaction_reference'],
                         'user_id' => $userId,
                         'cart_id' => $cartId,
+                        'billing_information_id' => $billingInformationId,
+                        'microsoft_account_id' => $microsoftAccountId,
                         'cart_id_tipo' => gettype($cartId),
                         'cart_id_es_null' => $cartId === null ? 'SÍ' : 'NO'
                     ]);
@@ -161,13 +169,17 @@ class MitecPaymentController extends Controller
                         $result['form_html'],
                         $result['mitec_url'],
                         $userId,
-                        $cartId
+                        $cartId,
+                        $billingInformationId,
+                        $microsoftAccountId
                     );
 
                     Log::info('MITEC: PaymentSession creado exitosamente', [
                         'payment_session_id' => $paymentSession->id,
                         'cart_id_guardado' => $paymentSession->cart_id,
-                        'user_id_guardado' => $paymentSession->user_id
+                        'user_id_guardado' => $paymentSession->user_id,
+                        'billing_information_id_guardado' => $paymentSession->billing_information_id,
+                        'microsoft_account_id_guardado' => $paymentSession->microsoft_account_id
                     ]);
 
                 } catch (\Exception $dbError) {
@@ -889,7 +901,8 @@ class MitecPaymentController extends Controller
                     'error_message' => $paymentResponse->nb_error,
                     'response_code' => $paymentResponse->response_code,
                     'card_last_four' => $paymentResponse->card_last_four,
-                    'card_type' => $paymentResponse->card_type
+                    'card_type' => $paymentResponse->card_type,
+                    'order_id' => $paymentResponse->order_id
                 ],
                 'order' => $paymentResponse->order ? [
                     'order_number' => $paymentResponse->order->order_number,

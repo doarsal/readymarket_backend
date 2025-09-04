@@ -14,6 +14,8 @@ class PaymentSession extends Model
         'mitec_url',
         'user_id',
         'cart_id',
+        'billing_information_id',
+        'microsoft_account_id',
         'expires_at'
     ];
 
@@ -56,8 +58,15 @@ class PaymentSession extends Model
     /**
      * Crea una nueva sesión de pago con expiración de 10 minutos
      */
-    public static function createForPayment(string $transactionReference, string $formHtml, string $mitecUrl, ?int $userId = null, ?int $cartId = null): self
-    {
+    public static function createForPayment(
+        string $transactionReference,
+        string $formHtml,
+        string $mitecUrl,
+        ?int $userId = null,
+        ?int $cartId = null,
+        ?int $billingInformationId = null,
+        ?int $microsoftAccountId = null
+    ): self {
         // Validar que los datos requeridos no estén vacíos
         if (empty($transactionReference)) {
             throw new \InvalidArgumentException('transaction_reference no puede estar vacío');
@@ -77,6 +86,8 @@ class PaymentSession extends Model
             'mitec_url' => $mitecUrl,
             'user_id' => $userId,
             'cart_id' => $cartId,
+            'billing_information_id' => $billingInformationId,
+            'microsoft_account_id' => $microsoftAccountId,
             'expires_at' => Carbon::now()->addMinutes(10)
         ]);
     }

@@ -129,7 +129,7 @@ class PaymentResponseService
 
         try {
             // Crear la orden desde el carrito
-            $order = $this->orderService->createOrderFromCart($cart, $paymentResponse);
+            $order = $this->orderService->createOrderFromCart($cart, $paymentResponse, $paymentSession);
 
             // Actualizar PaymentResponse con order_id
             $paymentResponse->update(['order_id' => $order->id]);
@@ -138,7 +138,9 @@ class PaymentResponseService
                 'order_id' => $order->id,
                 'order_number' => $order->order_number,
                 'payment_response_id' => $paymentResponse->id,
-                'payment_response_updated' => true
+                'payment_response_updated' => true,
+                'billing_information_id' => $order->billing_information_id,
+                'microsoft_account_id' => $order->microsoft_account_id
             ]);
 
         } catch (\Exception $e) {

@@ -210,7 +210,7 @@ class OrderController extends Controller
 
         $order = Order::where('id', $id)
                      ->where('user_id', $user->id)
-                     ->with(['items.product', 'store', 'billingInformation'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'microsoftAccount'])
                      ->first();
 
         if (!$order) {

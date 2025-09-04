@@ -94,7 +94,13 @@ XML;
     {
         // Por ahora usar merchant AMEX que está funcionando en QA
         // TODO: Implementar lógica específica por tipo de tarjeta si es necesario
-        return env('MITEC_MERCHANT_AMEX');
+        $merchant = env('MITEC_MERCHANT_AMEX');
+
+        if (empty($merchant)) {
+            throw new \Exception('MITEC_MERCHANT_AMEX no está configurado correctamente en el archivo .env');
+        }
+
+        return $merchant;
     }
 
     /**

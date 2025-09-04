@@ -47,8 +47,12 @@ function logMitecResponse($message, $data = null) {
  * EXACTAMENTE igual que el frontend (con IV aleatorio)
  */
 function decryptMitecResponse(string $encryptedData): string {
-    // Clave de desencriptación PRODUCCIÓN (actualizada)
-    $keyHex = '1BF745522C9903AE583C5E234F3D1CEA';  // PRODUCCIÓN environment
+    // Obtener clave de desencriptación desde .env
+    $keyHex = $_ENV['MITEC_KEY_HEX'] ?? null;
+
+    if (!$keyHex) {
+        throw new Exception('MITEC_KEY_HEX no está configurado en .env');
+    }
 
     $key = hex2bin($keyHex);
 
