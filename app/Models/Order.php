@@ -111,6 +111,16 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function cartItems(): HasMany
+    {
+        return $this->hasMany(CartItem::class, 'cart_id', 'cart_id');
+    }
+
     /**
      * Scopes
      */

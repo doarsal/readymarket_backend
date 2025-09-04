@@ -402,4 +402,106 @@ class OrderController extends Controller
             'data' => $stats
         ]);
     }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/orders/{id}/process-microsoft",
+     *     tags={"Orders"},
+     *     summary="Process order in Microsoft Partner Center",
+     *     description="Sends the order to Microsoft Partner Center for provisioning",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         required=true,
+     *         description="Order ID",
+     *         @OA\Schema(type="integer")
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Order processed successfully in Microsoft Partner Center"
+     *     ),
+     *     @OA\Response(
+     *         response=400,
+     *         description="Order cannot be processed (invalid status or other error)"
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Order not found"
+     *     )
+     * )
+     */
+    public function processMicrosoft($id): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+
+            // Buscar la orden del usuario autenticado
+            $order = Order::where('id', $id)
+                         ->where('user_id', $user->id)
+                         ->first();
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Orden no encontrada'
+                ], 404);
+            }
+
+            // Verificar que la orden esté en estado 'processing'
+            if ($order->status !== 'processing') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La orden debe estar en estado "procesando" para ser enviada a Microsoft Partner Center'
+                ], 400);
+            }
+
+            // Cargar relaciones necesarias
+            $order->load(['cartItems.product', 'microsoftAccount', 'user']);
+
+            // Verificar que la orden tenga una cuenta Microsoft asociada
+            if (!$order->microsoftAccount) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La orden debe tener una cuenta Microsoft asociada'
+                ], 400);
+            }
+
+            // Usar el servicio de Partner Center para procesar la orden
+            $partnerCenterService = app(\App\Services\PartnerCenterProvisioningService::class);
+
+            $result = $partnerCenterService->processOrder($order->id);
+
+            // Verificar si el procesamiento fue exitoso
+            if ($result['success']) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Orden procesada exitosamente en Microsoft Partner Center',
+                    'data' => $result
+                ]);
+            } else {
+                // El servicio devolvió error pero no lanzó excepción
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['message'] ?? 'Error al procesar la orden en Microsoft Partner Center',
+                    'microsoft_details' => $result['microsoft_details'] ?? [],
+                    'error_type' => $result['error_type'] ?? 'unknown',
+                    'order_id' => $result['order_id'] ?? null
+                ], 422); // 422 Unprocessable Entity para errores de negocio
+            }
+
+        } catch (\Exception $e) {
+            \Log::error('Error processing order in Microsoft Partner Center: ' . $e->getMessage(), [
+                'order_id' => $id,
+                'user_id' => Auth::id(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al procesar la orden en Microsoft Partner Center: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }

@@ -3861,6 +3861,76 @@
                 }
             }
         },
+        "/api/v1/microsoft-accounts/{id}/retry": {
+            "post": {
+                "tags": [
+                    "Microsoft Accounts"
+                ],
+                "summary": "Retry Microsoft account creation",
+                "description": "Retry creating a Microsoft account in Partner Center for a pending account",
+                "operationId": "fada132c579c67f70765164af6af0a9f",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Microsoft account ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Retry operation completed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "enum": [
+                                                "COMPLETE_SUCCESS",
+                                                "PARTIAL_SUCCESS",
+                                                "COMPLETE_FAILURE"
+                                            ]
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/MicrosoftAccount"
+                                        },
+                                        "microsoft_integration": {
+                                            "properties": {
+                                                "success": {
+                                                    "type": "boolean"
+                                                },
+                                                "details": {
+                                                    "type": "string"
+                                                },
+                                                "error_code": {
+                                                    "type": "string",
+                                                    "nullable": true
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Microsoft account not found"
+                    },
+                    "422": {
+                        "description": "Account is not in pending status"
+                    }
+                }
+            }
+        },
         "/api/v1/payments/mitec/process": {
             "post": {
                 "tags": [
@@ -4112,6 +4182,193 @@
                 }
             }
         },
+        "/api/v1/payment-sessions/{reference}": {
+            "get": {
+                "tags": [
+                    "MITEC Payments"
+                ],
+                "summary": "Get payment session by reference",
+                "description": "Retrieves payment session data including form HTML for MITEC submission",
+                "operationId": "e0e14dab0c3d75047dadbbf93cfdc952",
+                "parameters": [
+                    {
+                        "name": "reference",
+                        "in": "path",
+                        "description": "Transaction reference",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Payment session retrieved successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "form_html": {
+                                            "description": "HTML form for MITEC submission",
+                                            "type": "string"
+                                        },
+                                        "mitec_url": {
+                                            "description": "MITEC payment URL",
+                                            "type": "string"
+                                        },
+                                        "transaction_reference": {
+                                            "description": "Transaction reference",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Payment session not found"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/payments/mitec/process-token": {
+            "post": {
+                "tags": [
+                    "MITEC Payments"
+                ],
+                "summary": "Process MITEC response token",
+                "description": "Processes the encrypted token returned by MITEC after payment",
+                "operationId": "af4f9c2f5a3591186b932d54ce778e43",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "token": {
+                                        "description": "Encrypted token from MITEC",
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "example": {
+                                "token": "encrypted_token_here"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Token processed successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "status": {
+                                            "description": "Transaction status",
+                                            "type": "string"
+                                        },
+                                        "data": {
+                                            "description": "Transaction details",
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/payments/mitec/callback": {
+            "get": {
+                "tags": [
+                    "MITEC Payments"
+                ],
+                "summary": "Callback de MITEC - Procesa respuesta del gateway",
+                "operationId": "85bf6d1c80759f8948971c21c54c3ff3",
+                "parameters": [
+                    {
+                        "name": "token",
+                        "in": "query",
+                        "description": "Token encriptado de respuesta de MITEC",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirección al frontend con referencia de pago"
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/status/{reference}": {
+            "get": {
+                "tags": [
+                    "MITEC Payments"
+                ],
+                "summary": "Consultar estado de pago por referencia",
+                "operationId": "c452f8ec5af72667fad2d6f47c8b581c",
+                "parameters": [
+                    {
+                        "name": "reference",
+                        "in": "path",
+                        "description": "Referencia del pago",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Estado del pago",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean"
+                                        },
+                                        "payment": {
+                                            "type": "object"
+                                        },
+                                        "order": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orders": {
             "get": {
                 "tags": [
@@ -4331,6 +4588,424 @@
                 "security": [
                     {
                         "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/orders/provisioning/process": {
+            "post": {
+                "tags": [
+                    "Order Provisioning"
+                ],
+                "summary": "Process order and provision products in Microsoft Partner Center",
+                "description": "Processes a pending order and creates the products in Microsoft Partner Center",
+                "operationId": "processOrderProvisioning",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "order_id": {
+                                        "description": "ID of the order to process",
+                                        "type": "integer",
+                                        "example": 123
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Order processed successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Products provisioned successfully in Partner Center"
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "order_id": {
+                                                    "type": "integer",
+                                                    "example": 123
+                                                },
+                                                "cart_id": {
+                                                    "type": "string",
+                                                    "example": "cart-uuid"
+                                                },
+                                                "subscriptions_count": {
+                                                    "type": "integer",
+                                                    "example": 3
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Order status is not pending",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": false
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Order status is 'completed', expected 'pending'"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Order not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": false
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Order not found"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Provisioning failed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": false
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Failed to create cart in Microsoft Partner Center"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/orders/provisioning/{order_id}/status": {
+            "get": {
+                "tags": [
+                    "Order Provisioning"
+                ],
+                "summary": "Get order provisioning status",
+                "description": "Retrieves the current status of an order and its provisioning details",
+                "operationId": "getOrderProvisioningStatus",
+                "parameters": [
+                    {
+                        "name": "order_id",
+                        "in": "path",
+                        "description": "ID of the order",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 123
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Order status retrieved successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "order_id": {
+                                                    "type": "integer",
+                                                    "example": 123
+                                                },
+                                                "order_number": {
+                                                    "type": "string",
+                                                    "example": "ORD-20250903-001"
+                                                },
+                                                "fulfillment_status": {
+                                                    "type": "string",
+                                                    "example": "completed"
+                                                },
+                                                "total_amount": {
+                                                    "type": "number",
+                                                    "format": "float",
+                                                    "example": 299.99
+                                                },
+                                                "cart_items_count": {
+                                                    "type": "integer",
+                                                    "example": 3
+                                                },
+                                                "subscriptions_count": {
+                                                    "type": "integer",
+                                                    "example": 2
+                                                },
+                                                "created_at": {
+                                                    "type": "string",
+                                                    "format": "date-time"
+                                                },
+                                                "updated_at": {
+                                                    "type": "string",
+                                                    "format": "date-time"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Order not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": false
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Order not found"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/orders/provisioning/pending": {
+            "get": {
+                "tags": [
+                    "Order Provisioning"
+                ],
+                "summary": "Get orders that need provisioning",
+                "description": "Retrieves all orders with pending fulfillment status that need to be processed",
+                "operationId": "getPendingOrders",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Page number for pagination",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Pending orders retrieved successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        },
+                                        "pagination": {
+                                            "properties": {
+                                                "current_page": {
+                                                    "type": "integer",
+                                                    "example": 1
+                                                },
+                                                "last_page": {
+                                                    "type": "integer",
+                                                    "example": 5
+                                                },
+                                                "per_page": {
+                                                    "type": "integer",
+                                                    "example": 20
+                                                },
+                                                "total": {
+                                                    "type": "integer",
+                                                    "example": 100
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/orders/provisioning/batch-process": {
+            "post": {
+                "tags": [
+                    "Order Provisioning"
+                ],
+                "summary": "Batch process multiple orders",
+                "description": "Processes multiple orders at once for Partner Center provisioning",
+                "operationId": "batchProcessOrders",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "order_ids": {
+                                        "description": "Array of order IDs to process (max 10)",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "integer"
+                                        },
+                                        "example": [
+                                            123,
+                                            124,
+                                            125
+                                        ]
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Batch processing completed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Processed 2 orders successfully, 1 failed"
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "results": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "summary": {
+                                                    "properties": {
+                                                        "total": {
+                                                            "type": "integer",
+                                                            "example": 3
+                                                        },
+                                                        "successful": {
+                                                            "type": "integer",
+                                                            "example": 2
+                                                        },
+                                                        "failed": {
+                                                            "type": "integer",
+                                                            "example": 1
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation failed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": false
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Validation failed"
+                                        },
+                                        "errors": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
                     }
                 ]
             }
@@ -6300,6 +6975,35 @@
                         "bearerAuth": []
                     }
                 ]
+            }
+        },
+        "/api/v1/products/detail/{id}": {
+            "get": {
+                "tags": [
+                    "Products"
+                ],
+                "summary": "Get product details by internal ID",
+                "description": "Returns a specific product with its billing variants by internal ID (idproduct)",
+                "operationId": "6c1698104eb817183e591153740f0b4c",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Product internal ID (idproduct)",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Product retrieved successfully"
+                    },
+                    "404": {
+                        "description": "Product not found"
+                    }
+                }
             }
         },
         "/api/v1/products/by-product-id/{productId}": {
@@ -10730,7 +11434,7 @@
                 "description": "Datos fiscales del usuario",
                 "properties": {
                     "id": {
-                        "description": "ID único de los datos fiscales",
+                        "description": "ID único de la información de facturación",
                         "type": "integer",
                         "format": "int64"
                     },
@@ -11591,6 +12295,10 @@
         {
             "name": "Users",
             "description": "API Endpoints for User Management"
+        },
+        {
+            "name": "Order Provisioning",
+            "description": "Order Provisioning"
         }
     ]
 }

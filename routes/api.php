@@ -310,6 +310,15 @@ Route::prefix('v1')->group(function () {
             Route::get('statistics', [OrderController::class, 'statistics']);
             Route::get('{id}', [OrderController::class, 'show']);
             Route::put('{id}/cancel', [OrderController::class, 'cancel']);
+            Route::post('{id}/process-microsoft', [OrderController::class, 'processMicrosoft']);
+        });
+
+        // Order Provisioning endpoints (Partner Center integration)
+        Route::prefix('orders/provisioning')->group(function () {
+            Route::post('process/{order_id}', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'processOrder']);
+            Route::get('pending', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'getPendingOrders']);
+            Route::post('batch-process', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'batchProcessOrders']);
+            Route::get('{order_id}/status', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'getOrderStatus']);
         });
 
     }); // Cierre del middleware auth:sanctum
