@@ -57,6 +57,10 @@ Route::prefix('v1')->group(function () {
         Route::post('resend-verification', [AuthController::class, 'resendVerification']);
         Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
 
+        // OTP Verification endpoints
+        Route::post('verify-otp', [AuthController::class, 'verifyOTP']);
+        Route::post('resend-otp', [AuthController::class, 'resendOTP']);
+
         // Estos SÍ requieren autenticación
         Route::middleware('auth:sanctum')->group(function () {
             Route::post('logout', [AuthController::class, 'logout']);

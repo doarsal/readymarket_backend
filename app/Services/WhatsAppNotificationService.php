@@ -213,6 +213,281 @@ class WhatsAppNotificationService
     }
 
     /**
+     * Send WhatsApp message for Microsoft account creation errors
+     */
+    public function sendMicrosoftAccountCreationErrorNotification($microsoftAccount, string $errorMessage, array $errorDetails = [], array $microsoftErrorDetails = []): void
+    {
+        try {
+            $phoneNumbers = env('WHATSAPP_NOTIFICATION_NUMBER');
+
+            if (!$phoneNumbers || !$this->graphToken || !$this->phoneId) {
+                Log::warning('WhatsApp configuration incomplete');
+                return;
+            }
+
+            // Convert comma-separated numbers to array
+            $phoneList = array_map('trim', explode(',', $phoneNumbers));
+
+            // Format message for WhatsApp
+            $message = $this->formatMicrosoftAccountCreationErrorMessage($microsoftAccount, $errorMessage, $errorDetails, $microsoftErrorDetails);
+
+            // Send to each phone number
+            foreach ($phoneList as $phoneNumber) {
+                if (!empty($phoneNumber)) {
+                    try {
+                        $this->sendMessage($phoneNumber, $message);
+                        Log::info("WhatsApp notification sent to {$phoneNumber} for Microsoft account creation error - Account: {$microsoftAccount->id}");
+                    } catch (Exception $sendException) {
+                        Log::error("Failed to send WhatsApp to {$phoneNumber}: " . $sendException->getMessage());
+                        // Continue with next number even if one fails
+                    }
+                }
+            }
+
+        } catch (Exception $e) {
+            Log::error("Failed to send WhatsApp account creation notification: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Format the Microsoft account creation error message for WhatsApp
+     */
+    private function formatMicrosoftAccountCreationErrorMessage($microsoftAccount, string $errorMessage, array $errorDetails, array $microsoftErrorDetails): string
+    {
+        $message = "🚨 *ERROR EN CREACIÓN DE CUENTA MICROSOFT* 🚨\n\n";
+
+        // Información básica
+        $message .= "� *ID LOCAL:* {$microsoftAccount->id}\n";
+        $message .= "👤 *USER ID:* {$microsoftAccount->user_id}\n";
+        $message .= "🔑 *MICROSOFT ID:* " . ($microsoftAccount->microsoft_id ?: 'N/A - Error en creación') . "\n\n";
+
+        // Información de dominio
+        $message .= "🌐 *DOMINIO BASE:* {$microsoftAccount->domain}\n";
+        $message .= "� *DOMINIO COMPLETO:* {$microsoftAccount->domain_concatenated}\n\n";
+
+        // Información personal
+        $message .= "👤 *NOMBRE:* {$microsoftAccount->first_name}\n";
+        $message .= "👤 *APELLIDO:* {$microsoftAccount->last_name}\n";
+        $message .= "📧 *EMAIL:* {$microsoftAccount->email}\n";
+        $message .= "📞 *TELÉFONO:* " . ($microsoftAccount->phone ?: 'N/A') . "\n\n";
+
+        // Información de organización
+        $message .= "🏢 *ORGANIZACIÓN:* {$microsoftAccount->organization}\n";
+        $message .= "📍 *DIRECCIÓN:* " . ($microsoftAccount->address ?: 'N/A') . "\n";
+        $message .= "🏙️ *CIUDAD:* " . ($microsoftAccount->city ?: 'N/A') . "\n";
+        $message .= "🗺️ *ESTADO (CÓDIGO):* " . ($microsoftAccount->state_code ?: 'N/A') . "\n";
+        $message .= "🗺️ *ESTADO (NOMBRE):* " . ($microsoftAccount->state_name ?: 'N/A') . "\n";
+        $message .= "� *CÓDIGO POSTAL:* " . ($microsoftAccount->postal_code ?: 'N/A') . "\n";
+        $message .= "🌎 *PAÍS (CÓDIGO):* {$microsoftAccount->country_code}\n";
+        $message .= "🌎 *PAÍS (NOMBRE):* " . ($microsoftAccount->country_name ?: 'N/A') . "\n\n";
+
+        // Información de localización
+        $message .= "🗣️ *IDIOMA:* {$microsoftAccount->language_code}\n";
+        $message .= "🎭 *CULTURA:* {$microsoftAccount->culture}\n\n";
+
+        // Fechas
+        $message .= "📅 *CREADO:* " . ($microsoftAccount->created_at ? $microsoftAccount->created_at->format('d/m/Y H:i:s') : 'N/A') . "\n";
+        $message .= "📅 *ACTUALIZADO:* " . ($microsoftAccount->updated_at ? $microsoftAccount->updated_at->format('d/m/Y H:i:s') : 'N/A') . "\n\n";
+
+        // Error de Microsoft
+        $message .= "❌ *ERROR DE MICROSOFT:*\n";
+
+        if (isset($microsoftErrorDetails['error_code'])) {
+            $message .= "📄 *Código:* {$microsoftErrorDetails['error_code']}\n";
+        }
+
+        if (isset($microsoftErrorDetails['description'])) {
+            $message .= "📝 *Descripción:* {$microsoftErrorDetails['description']}\n";
+        }
+
+        if (isset($microsoftErrorDetails['http_status'])) {
+            $message .= "🌐 *HTTP Status:* {$microsoftErrorDetails['http_status']}\n";
+        }
+
+        if (isset($errorDetails['details'])) {
+            $message .= "ℹ️ *Detalles:* {$errorDetails['details']}\n";
+        }
+
+        $message .= "\n⏰ *Fecha del Error:* " . now()->format('d/m/Y H:i:s');
+        $message .= "\n\n🔧 *Acción requerida:* Revisar creación de cuenta en Microsoft Partner Center";
+
+        return $message;
+    }
+
+    /**
+     * Send WhatsApp message for new user registration
+     */
+    public function sendUserRegistrationNotification($user): void
+    {
+        try {
+            $phoneNumbers = env('WHATSAPP_NOTIFICATION_NUMBER');
+
+            if (!$phoneNumbers || !$this->graphToken || !$this->phoneId) {
+                Log::warning('WhatsApp configuration incomplete for user registration notification');
+                return;
+            }
+
+            // Convert comma-separated numbers to array
+            $phoneList = array_map('trim', explode(',', $phoneNumbers));
+
+            // Format message for WhatsApp
+            $message = $this->formatUserRegistrationMessage($user);
+
+            // Send to each phone number
+            foreach ($phoneList as $phoneNumber) {
+                if (!empty($phoneNumber)) {
+                    try {
+                        $this->sendMessage($phoneNumber, $message);
+                        Log::info("WhatsApp user registration notification sent to {$phoneNumber} for user: {$user->id}");
+                    } catch (Exception $sendException) {
+                        Log::error("Failed to send WhatsApp user registration notification to {$phoneNumber}: " . $sendException->getMessage());
+                        // Continue with next number even if one fails
+                    }
+                }
+            }
+
+        } catch (Exception $e) {
+            Log::error("Failed to send WhatsApp user registration notification: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Format the user registration message for WhatsApp
+     */
+    private function formatUserRegistrationMessage($user): string
+    {
+        $message = "🎉 *NUEVO USUARIO REGISTRADO EN READYMARKET* 🎉\n\n";
+
+        // Información básica del usuario
+        $message .= "👤 *NOMBRE:* {$user->name}\n";
+        $message .= "📧 *EMAIL:* {$user->email}\n";
+
+        if ($user->phone) {
+            $message .= "📞 *TELÉFONO:* {$user->phone}\n";
+        }
+
+        // Información adicional si está disponible
+        if ($user->company_name) {
+            $message .= "🏢 *EMPRESA:* {$user->company_name}\n";
+        }
+
+        if ($user->position) {
+            $message .= "💼 *CARGO:* {$user->position}\n";
+        }
+
+        // Ubicación si está disponible
+        if ($user->city || $user->state || $user->country) {
+            $message .= "\n📍 *UBICACIÓN:*\n";
+
+            if ($user->city) {
+                $message .= "🏙️ Ciudad: {$user->city}\n";
+            }
+
+            if ($user->state) {
+                $message .= "🗺️ Estado: {$user->state}\n";
+            }
+
+            if ($user->country) {
+                $message .= "🌎 País: {$user->country}\n";
+            }
+        }
+
+        // Estado del usuario
+        $message .= "\n✅ *ESTADO:* " . ($user->email_verified_at ? 'Email verificado' : 'Pendiente de verificar email') . "\n";
+
+        // Fechas
+        $message .= "\n📅 *FECHA DE REGISTRO:* " . $user->created_at->format('d/m/Y H:i:s') . "\n";
+
+        $message .= "\n🎯 *Acción sugerida:* Revisar nuevo usuario en el sistema administrativo";
+
+        return $message;
+    }
+
+    /**
+     * Send OTP verification code via WhatsApp
+     */
+    public function sendOTPVerification(string $phoneNumber, string $otpCode, string $userName = null): bool
+    {
+        try {
+            if (!$this->graphToken || !$this->phoneId) {
+                Log::warning('WhatsApp configuration incomplete for OTP verification');
+                return false;
+            }
+
+            // Format message for OTP verification
+            $message = $this->formatOTPMessage($otpCode, $userName);
+
+            // Remove any country code duplicates and format phone
+            $formattedPhone = $this->formatPhoneForWhatsApp($phoneNumber);
+
+            // Send message using the standard sendMessage method
+            $this->sendMessage($formattedPhone, $message);
+
+            Log::info("WhatsApp OTP verification sent", [
+                'phone' => $formattedPhone,
+                'user_name' => $userName,
+                'otp_length' => strlen($otpCode)
+            ]);
+
+            return true;
+
+        } catch (Exception $e) {
+            Log::error("Failed to send WhatsApp OTP verification", [
+                'phone' => $phoneNumber,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Format the OTP verification message for WhatsApp
+     */
+    private function formatOTPMessage(string $otpCode, string $userName = null): string
+    {
+        $greeting = $userName ? "Hola {$userName}," : "Hola,";
+
+        $message = "🔐 *CÓDIGO DE VERIFICACIÓN - READYMARKET* 🔐\n\n";
+        $message .= "{$greeting}\n\n";
+        $message .= "Tu código de verificación es:\n\n";
+        $message .= "🔢 *{$otpCode}*\n\n";
+        $message .= "⏰ Este código expira en 10 minutos.\n\n";
+        $message .= "🔒 Por tu seguridad, no compartas este código con nadie.\n\n";
+        $message .= "Si no solicitaste esta verificación, puedes ignorar este mensaje.\n\n";
+        $message .= "¡Gracias por elegir ReadyMarket! 🛒";
+
+        return $message;
+    }
+
+    /**
+     * Format phone number for WhatsApp API
+     */
+    private function formatPhoneForWhatsApp(string $phoneNumber): string
+    {
+        // Remove any non-digit characters
+        $cleanPhone = preg_replace('/\D/', '', $phoneNumber);
+
+        // If phone starts with +52, remove the +
+        if (substr($cleanPhone, 0, 3) === '525') {
+            // Likely already has 52 prefix
+            return $cleanPhone;
+        }
+
+        // If phone starts with 52, keep as is
+        if (substr($cleanPhone, 0, 2) === '52') {
+            return $cleanPhone;
+        }
+
+        // If phone is 10 digits (Mexican format without country code), add 52
+        if (strlen($cleanPhone) === 10) {
+            return '52' . $cleanPhone;
+        }
+
+        // Return as is for other formats
+        return $cleanPhone;
+    }
+
+    /**
      * Test WhatsApp connection
      */
     public function testConnection(): bool

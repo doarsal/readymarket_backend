@@ -49,4 +49,42 @@ class MicrosoftErrorNotificationService
             Log::error("Failed to send Microsoft error notification: " . $e->getMessage());
         }
     }
+
+    /**
+     * Send error notification email and WhatsApp when Microsoft account creation fails
+     */
+    public function sendMicrosoftAccountCreationErrorNotification($microsoftAccount, string $errorMessage, array $errorDetails = [], array $microsoftErrorDetails = []): void
+    {
+        try {
+            $recipientEmails = env('MICROSOFT_ERROR_NOTIFICATION_EMAIL', 'salvador.rodriguez@readymind.ms');
+
+            // Convert comma-separated emails to array
+            $emailList = array_map('trim', explode(',', $recipientEmails));
+
+            // Send email notification to each recipient
+            foreach ($emailList as $email) {
+                if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    Mail::send('emails.microsoft-account-error', [
+                        'microsoftAccount' => $microsoftAccount,
+                        'errorMessage' => $errorMessage,
+                        'errorDetails' => $errorDetails,
+                        'microsoftErrorDetails' => $microsoftErrorDetails,
+                        'timestamp' => now()->format('Y-m-d H:i:s')
+                    ], function ($message) use ($email, $microsoftAccount) {
+                        $message->to($email)
+                               ->subject('🚨 Error en creación de cuenta Microsoft - ' . $microsoftAccount->company_name);
+                    });
+
+                    Log::info("Microsoft account creation error notification email sent to {$email} for account {$microsoftAccount->id}");
+                }
+            }
+
+            // Send WhatsApp notification
+            $whatsappService = new WhatsAppNotificationService();
+            $whatsappService->sendMicrosoftAccountCreationErrorNotification($microsoftAccount, $errorMessage, $errorDetails, $microsoftErrorDetails);
+
+        } catch (\Exception $e) {
+            Log::error("Failed to send Microsoft account creation error notification: " . $e->getMessage());
+        }
+    }
 }

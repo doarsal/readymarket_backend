@@ -28,6 +28,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Configurar zona horaria por defecto
+        date_default_timezone_set(config('app.timezone'));
+
+        // Configurar Carbon para usar la zona horaria por defecto
+        \Carbon\Carbon::setLocale('es');
+
         // Configurar UTF-8 para toda la aplicación
         mb_internal_encoding('UTF-8');
         mb_http_output('UTF-8');

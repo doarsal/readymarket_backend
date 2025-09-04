@@ -26,7 +26,7 @@ class EmailVerificationCode extends Model
     /**
      * Generate a new verification code
      */
-    public static function generateCode(string $email, string $ipAddress = null): string
+    public static function generateCode(string $email, string $ipAddress = null): self
     {
         // Delete any existing unused codes for this email
         self::where('email', $email)
@@ -36,15 +36,16 @@ class EmailVerificationCode extends Model
         // Generate 6-digit code
         $code = str_pad(random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
 
+        // Get current time in Mexico City timezone
+        $now = Carbon::now(config('app.timezone'));
+
         // Create new code
-        self::create([
+        return self::create([
             'email' => $email,
             'code' => $code,
-            'expires_at' => Carbon::now()->addMinutes(15), // 15 minutes expiry
+            'expires_at' => $now->addMinutes(15), // 15 minutes expiry
             'ip_address' => $ipAddress
         ]);
-
-        return $code;
     }
 
     /**
@@ -52,10 +53,13 @@ class EmailVerificationCode extends Model
      */
     public static function verifyCode(string $email, string $code): bool
     {
+        // Get current time in Mexico City timezone
+        $now = Carbon::now(config('app.timezone'));
+
         $verification = self::where('email', $email)
             ->where('code', $code)
             ->where('used', false)
-            ->where('expires_at', '>', Carbon::now())
+            ->where('expires_at', '>', $now)
             ->first();
 
         if ($verification) {

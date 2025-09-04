@@ -7,6 +7,8 @@ use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Models\EmailVerificationCode;
 use App\Services\CartService;
+use App\Services\UserRegistrationNotificationService;
+use App\Services\OTPVerificationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
@@ -23,6 +25,15 @@ use Illuminate\Validation\ValidationException;
  */
 class AuthController extends Controller
 {
+    private UserRegistrationNotificationService $notificationService;
+    private OTPVerificationService $otpService;
+
+    public function __construct(UserRegistrationNotificationService $notificationService, OTPVerificationService $otpService)
+    {
+        $this->notificationService = $notificationService;
+        $this->otpService = $otpService;
+    }
+
     /**
      * @OA\Post(
      *     path="/api/v1/auth/register",
@@ -71,9 +82,15 @@ class AuthController extends Controller
                 'confirmed',
                 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/',
             ],
-            'phone' => 'nullable|string|max:20',
+            'phone' => [
+                'required',
+                'string',
+                'regex:/^52[1-9]\d{9}$/', // Formato: 52 + lada (1 dígito) + número (9 dígitos) = 12 dígitos total
+            ],
         ], [
             'password.regex' => 'La contraseña debe contener al menos: 1 mayúscula, 1 minúscula, 1 número y 1 símbolo (@$!%*?&).',
+            'phone.required' => 'El teléfono es obligatorio.',
+            'phone.regex' => 'El teléfono debe tener el formato: 52 + lada + número',
         ]);
 
         // Crear usuario con campos de seguridad por defecto
@@ -94,14 +111,47 @@ class AuthController extends Controller
         // Generate and send verification code
         $verificationCode = EmailVerificationCode::generateCode($user->email, $request->ip());
 
-        // TODO: Send email with verification code
-        // Verification code is NOT exposed in response for security
+        // Send OTP verification code
+        $requiresOtpVerification = false;
+        try {
+            $otpCode = $this->otpService->sendOTPCode($user);
+
+            // If OTP is disabled, the service returns 'DISABLED' and user is auto-verified
+            if ($otpCode === 'DISABLED') {
+                $requiresOtpVerification = false;
+                Log::info('OTP verification disabled, user auto-verified', ['user_id' => $user->id]);
+            } else {
+                $requiresOtpVerification = true;
+                Log::info('OTP verification required', ['user_id' => $user->id]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error sending OTP code during registration', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        // Send user registration notifications (email & WhatsApp) if enabled
+        try {
+            $this->notificationService->sendNewUserRegistrationNotification($user);
+        } catch (\Exception $e) {
+            // Log error but don't fail the registration process
+            Log::error('Failed to send user registration notifications', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        // Prepare response message based on OTP status
+        $message = $requiresOtpVerification
+            ? 'Usuario registrado exitosamente. Se ha enviado un código de verificación a tu email y WhatsApp.'
+            : 'Usuario registrado y verificado exitosamente. Ya puedes iniciar sesión.';
 
         return response()->json([
             'success' => true,
-            'message' => 'Usuario registrado exitosamente. Se ha enviado un código de verificación a tu email.',
-            'user' => new UserResource($user),
-            'requires_email_verification' => true
+            'message' => $message,
+            'user' => new UserResource($user->fresh()),
+            'requires_otp_verification' => $requiresOtpVerification
         ], 201);
     }
 
@@ -175,12 +225,39 @@ class AuthController extends Controller
             ], 423);
         }
 
-        // Check if email is verified
-        if (!$user->is_verified) {
+        // Check if email is verified via OTP (only if OTP is enabled)
+        if (!$user->is_verified && $this->otpService->isOTPEnabled()) {
+            // Check if user has a valid unexpired OTP code
+            $hasValidOTP = \App\Models\EmailVerificationCode::where('email', $user->email)
+                ->where('used', false)
+                ->where('expires_at', '>', \Carbon\Carbon::now(config('app.timezone')))
+                ->exists();
+
+            // If no valid OTP exists, send a new one automatically (but don't notify admin)
+            if (!$hasValidOTP) {
+                try {
+                    $this->otpService->sendOTPForReturningUser($user, $request->ip());
+
+                    Log::info('New OTP sent to returning unverified user', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'ip' => $request->ip()
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to send OTP to returning user', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'Email no verificado. Por favor verifica tu email antes de iniciar sesión.',
-                'requires_email_verification' => true
+                'message' => 'Cuenta no verificada. Se ha enviado un código de verificación a tu correo y WhatsApp.',
+                'requires_otp_verification' => true,
+                'email' => $user->email,
+                'phone' => $user->phone
             ], 422);
         }
 
@@ -526,5 +603,162 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Si el email existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.'
         ]);
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/auth/verify-otp",
+     *     tags={"Authentication"},
+     *     summary="Verify OTP code",
+     *     description="Verify user account using OTP code",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"email","otp_code"},
+     *             @OA\Property(property="email", type="string", format="email", example="john@example.com"),
+     *             @OA\Property(property="otp_code", type="string", example="123456")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="OTP verified successfully",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="user", type="object")
+     *         )
+     *     ),
+     *     @OA\Response(response=400, description="Invalid or expired OTP"),
+     *     @OA\Response(response=404, description="User not found")
+     * )
+     */
+    public function verifyOTP(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'otp_code' => 'required|string|size:6',
+        ]);
+
+        try {
+            $user = User::where('email', $request->email)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Usuario no encontrado.'
+                ], 404);
+            }
+
+            $verified = $this->otpService->verifyOTPCode($user, $request->otp_code);
+
+            if (!$verified) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Código OTP inválido o expirado.'
+                ], 400);
+            }
+
+            // Revocar tokens anteriores (opcional)
+            $user->tokens()->delete();
+
+            // Crear un nuevo token para autenticar automáticamente al usuario
+            $token = $user->createToken('marketplace-token')->plainTextToken;
+
+            // Actualizar last login info
+            $user->updateLastLogin($request->ip());
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cuenta verificada exitosamente. Sesión iniciada automáticamente.',
+                'user' => new UserResource($user->fresh()),
+                'token' => $token
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error verifying OTP', [
+                'email' => $request->email,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor. Intenta nuevamente.'
+            ], 500);
+        }
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/auth/resend-otp",
+     *     tags={"Authentication"},
+     *     summary="Resend OTP code",
+     *     description="Resend OTP verification code to user",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"email"},
+     *             @OA\Property(property="email", type="string", format="email", example="john@example.com")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="OTP resent successfully",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string")
+     *         )
+     *     ),
+     *     @OA\Response(response=400, description="Too many requests"),
+     *     @OA\Response(response=404, description="User not found")
+     * )
+     */
+    public function resendOTP(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        try {
+            $user = User::where('email', $request->email)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Usuario no encontrado.'
+                ], 404);
+            }
+
+            if ($user->is_verified) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Esta cuenta ya está verificada.'
+                ], 400);
+            }
+
+            $resent = $this->otpService->resendOTPCode($user);
+
+            if (!$resent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Debes esperar antes de solicitar un nuevo código. Intenta en 1 minuto.'
+                ], 429);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Nuevo código OTP enviado a tu email y WhatsApp.'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error resending OTP', [
+                'email' => $request->email,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor. Intenta nuevamente.'
+            ], 500);
+        }
     }
 }

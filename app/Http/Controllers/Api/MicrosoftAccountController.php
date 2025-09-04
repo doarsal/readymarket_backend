@@ -9,6 +9,7 @@ use App\Http\Resources\MicrosoftAccountCollection;
 use App\Models\MicrosoftAccount;
 use App\Services\MicrosoftPartnerCenterService;
 use App\Services\MicrosoftAccountEmailService;
+use App\Services\MicrosoftErrorNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -25,13 +26,16 @@ class MicrosoftAccountController extends Controller
 {
     private MicrosoftPartnerCenterService $partnerCenterService;
     private MicrosoftAccountEmailService $emailService;
+    private MicrosoftErrorNotificationService $errorNotificationService;
 
     public function __construct(
         MicrosoftPartnerCenterService $partnerCenterService,
-        MicrosoftAccountEmailService $emailService
+        MicrosoftAccountEmailService $emailService,
+        MicrosoftErrorNotificationService $errorNotificationService
     ) {
         $this->partnerCenterService = $partnerCenterService;
         $this->emailService = $emailService;
+        $this->errorNotificationService = $errorNotificationService;
     }
 
     /**
@@ -271,6 +275,59 @@ class MicrosoftAccountController extends Controller
                             'details' => 'Error desconocido al crear la cuenta en Microsoft: ' . $errorMessage
                         ];
                     }
+
+                    // Enviar notificaciones de error (email y WhatsApp)
+                    try {
+                        // Preparar detalles del error para las notificaciones
+                        $errorDetails = [
+                            'details' => 'Error al crear cuenta en Microsoft Partner Center: ' . $errorMessage,
+                            'error_code' => $microsoftIntegrationResult['error'],
+                            'account_id' => $account->id,
+                            'user_id' => $userId,
+                            'timestamp' => now()->format('Y-m-d H:i:s')
+                        ];
+
+                        // Extraer detalles específicos de Microsoft si están disponibles
+                        $microsoftErrorDetails = [];
+                        if (method_exists($e, 'getResponse') && $e->getResponse()) {
+                            $response = $e->getResponse();
+                            $responseBody = $response->getBody()->getContents();
+                            $microsoftErrorDetails = [
+                                'http_status' => $response->getStatusCode(),
+                                'raw_response' => $responseBody
+                            ];
+
+                            // Intentar extraer error_code y description del JSON de respuesta
+                            $decodedResponse = json_decode($responseBody, true);
+                            if ($decodedResponse && isset($decodedResponse['error'])) {
+                                if (isset($decodedResponse['error']['code'])) {
+                                    $microsoftErrorDetails['error_code'] = $decodedResponse['error']['code'];
+                                }
+                                if (isset($decodedResponse['error']['message'])) {
+                                    $microsoftErrorDetails['description'] = $decodedResponse['error']['message'];
+                                }
+                            }
+                        }
+
+                        // Usar el método específico para errores de creación de cuenta
+                        $this->errorNotificationService->sendMicrosoftAccountCreationErrorNotification(
+                            $account,
+                            "Error al crear cuenta Microsoft: " . $errorMessage,
+                            $errorDetails,
+                            $microsoftErrorDetails
+                        );
+
+                        Log::info("Error notifications sent for Microsoft account creation failure", [
+                            'account_id' => $account->id,
+                            'error_type' => $microsoftIntegrationResult['error']
+                        ]);
+
+                    } catch (\Exception $notificationException) {
+                        Log::error("Failed to send error notifications for Microsoft account creation", [
+                            'account_id' => $account->id,
+                            'notification_error' => $notificationException->getMessage()
+                        ]);
+                    }
                 }
             }
 
@@ -301,6 +358,41 @@ class MicrosoftAccountController extends Controller
                 'error' => $e->getMessage(),
                 'data' => $request->validated()
             ]);
+
+            // Enviar notificaciones de error si existe una cuenta parcialmente creada
+            try {
+                if (isset($account) && $account) {
+                    $errorDetails = [
+                        'details' => 'Error durante la creación completa de la cuenta Microsoft: ' . $e->getMessage(),
+                        'error_code' => 'ACCOUNT_CREATION_FAILURE',
+                        'account_id' => $account->id ?? 'N/A',
+                        'user_id' => $userId,
+                        'timestamp' => now()->format('Y-m-d H:i:s')
+                    ];
+
+                    $microsoftErrorDetails = [
+                        'description' => 'Error general durante el proceso de creación de cuenta',
+                        'error_code' => 'INTERNAL_ERROR'
+                    ];
+
+                    $this->errorNotificationService->sendMicrosoftAccountCreationErrorNotification(
+                        $account,
+                        "Error crítico en creación de cuenta Microsoft: " . $e->getMessage(),
+                        $errorDetails,
+                        $microsoftErrorDetails
+                    );
+
+                    Log::info("Critical error notifications sent for Microsoft account creation", [
+                        'account_id' => $account->id ?? 'N/A',
+                        'user_id' => $userId
+                    ]);
+                }
+            } catch (\Exception $notificationException) {
+                Log::error("Failed to send critical error notifications", [
+                    'original_error' => $e->getMessage(),
+                    'notification_error' => $notificationException->getMessage()
+                ]);
+            }
 
             return response()->json([
                 'success' => false,
@@ -948,6 +1040,41 @@ class MicrosoftAccountController extends Controller
                     'error_code' => $errorCode
                 ]);
 
+                // Enviar notificaciones de error para el retry fallido
+                try {
+                    $errorDetailsForNotification = [
+                        'details' => 'Error en reintento de creación de cuenta Microsoft: ' . $errorDetails,
+                        'error_code' => $errorCode,
+                        'account_id' => $microsoftAccount->id,
+                        'timestamp' => now()->format('Y-m-d H:i:s'),
+                        'retry_attempt' => true
+                    ];
+
+                    $microsoftErrorDetails = [
+                        'error_code' => $errorCode,
+                        'description' => $errorDetails,
+                        'original_error' => $originalError
+                    ];
+
+                    $this->errorNotificationService->sendMicrosoftAccountCreationErrorNotification(
+                        $microsoftAccount,
+                        "Error en reintento de cuenta Microsoft: " . $errorDetails,
+                        $errorDetailsForNotification,
+                        $microsoftErrorDetails
+                    );
+
+                    Log::info("Retry error notifications sent for Microsoft account", [
+                        'account_id' => $microsoftAccount->id,
+                        'error_code' => $errorCode
+                    ]);
+
+                } catch (\Exception $notificationException) {
+                    Log::error("Failed to send retry error notifications", [
+                        'account_id' => $microsoftAccount->id,
+                        'notification_error' => $notificationException->getMessage()
+                    ]);
+                }
+
                 return response()->json([
                     'status' => 'PARTIAL_SUCCESS',
                     'message' => 'Cuenta guardada localmente, pero falló la integración con Microsoft',
@@ -985,6 +1112,41 @@ class MicrosoftAccountController extends Controller
                 'error_code' => $errorCode,
                 'microsoft_original_error' => $errorMessage
             ];
+
+            // Enviar notificaciones de error para la excepción en retry
+            try {
+                $errorDetailsForNotification = [
+                    'details' => 'Excepción durante reintento de cuenta Microsoft: ' . $errorDetails,
+                    'error_code' => $errorCode,
+                    'account_id' => $microsoftAccount->id,
+                    'timestamp' => now()->format('Y-m-d H:i:s'),
+                    'retry_exception' => true
+                ];
+
+                $microsoftErrorDetails = [
+                    'error_code' => $errorCode,
+                    'description' => $errorDetails,
+                    'original_error' => $errorMessage
+                ];
+
+                $this->errorNotificationService->sendMicrosoftAccountCreationErrorNotification(
+                    $microsoftAccount,
+                    "Excepción en reintento de cuenta Microsoft: " . $errorMessage,
+                    $errorDetailsForNotification,
+                    $microsoftErrorDetails
+                );
+
+                Log::info("Retry exception notifications sent for Microsoft account", [
+                    'account_id' => $microsoftAccount->id,
+                    'error_code' => $errorCode
+                ]);
+
+            } catch (\Exception $notificationException) {
+                Log::error("Failed to send retry exception notifications", [
+                    'account_id' => $microsoftAccount->id,
+                    'notification_error' => $notificationException->getMessage()
+                ]);
+            }
 
             return response()->json([
                 'status' => 'PARTIAL_SUCCESS',
