@@ -21,8 +21,8 @@ class PartnerCenterProvisioningService
 
     public function __construct()
     {
-        $this->tokenEndpoint = 'https://rmx-wa-marketplace-prd.azurewebsites.net/credentials?commandId=54f8986a-d5a2-4759-b92b-7dfa0b40634b';
-        $this->partnerCenterApiUrl = 'https://api.partnercenter.microsoft.com/v1';
+        $this->tokenEndpoint = config('services.microsoft.credentials_url', env('MICROSOFT_CREDENTIALS_URL'));
+        $this->partnerCenterApiUrl = config('services.microsoft.partner_center_base_url', env('MICROSOFT_PARTNER_CENTER_BASE_URL'));
     }
 
     /**
@@ -199,7 +199,7 @@ class PartnerCenterProvisioningService
         try {
             if ($logFile) file_put_contents($logFile, "[INFO] Requesting Microsoft token from: " . $this->tokenEndpoint . "\n", FILE_APPEND);
 
-            $response = Http::timeout(30)->get($this->tokenEndpoint);
+            $response = Http::timeout(config('services.microsoft.token_timeout', env('MICROSOFT_API_TOKEN_TIMEOUT', 60)))->get($this->tokenEndpoint);
 
             if ($logFile) {
                 file_put_contents($logFile, "[INFO] Microsoft token response status: " . $response->status() . "\n", FILE_APPEND);
@@ -303,7 +303,7 @@ class PartnerCenterProvisioningService
                 file_put_contents($logFile, "[INFO] Payload: " . json_encode($payload, JSON_PRETTY_PRINT) . "\n", FILE_APPEND);
             }
 
-            $response = Http::timeout(30)
+            $response = Http::timeout(config('services.microsoft.create_cart_timeout', env('MICROSOFT_API_CREATE_CART_TIMEOUT', 120)))
                 ->withHeaders([
                     'Content-Type' => 'application/json',
                     'Authorization' => 'Bearer ' . $token
@@ -365,7 +365,7 @@ class PartnerCenterProvisioningService
                 file_put_contents($logFile, "[INFO] Checkout URL: {$url}\n", FILE_APPEND);
             }
 
-            $response = Http::timeout(30)
+            $response = Http::timeout(config('services.microsoft.checkout_timeout', env('MICROSOFT_API_CHECKOUT_TIMEOUT', 180)))
                 ->withHeaders([
                     'Authorization' => 'Bearer ' . $token
                 ])
@@ -462,7 +462,7 @@ class PartnerCenterProvisioningService
 
             if ($logFile) file_put_contents($logFile, "[INFO] Setting Azure spending budget: {$budgetAmount}\n", FILE_APPEND);
 
-            $response = Http::timeout(30)
+            $response = Http::timeout(config('services.microsoft.budget_timeout', env('MICROSOFT_API_BUDGET_TIMEOUT', 90)))
                 ->withHeaders([
                     'Content-Type' => 'application/json',
                     'Authorization' => 'Bearer ' . $token

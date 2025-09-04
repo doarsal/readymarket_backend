@@ -49,7 +49,7 @@ class OrderController extends Controller
         $user = Auth::user();
 
         $query = Order::where('user_id', $user->id)
-                     ->with(['items.product', 'store'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage'])
                      ->orderBy('created_at', 'desc');
 
         if ($request->has('status')) {
@@ -210,7 +210,7 @@ class OrderController extends Controller
 
         $order = Order::where('id', $id)
                      ->where('user_id', $user->id)
-                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'microsoftAccount'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'microsoftAccount'])
                      ->first();
 
         if (!$order) {

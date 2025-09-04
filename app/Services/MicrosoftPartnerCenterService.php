@@ -44,7 +44,7 @@ class MicrosoftPartnerCenterService
         }
 
         try {
-            $response = Http::timeout(10)
+            $response = Http::timeout(config('services.microsoft.token_timeout', env('MICROSOFT_API_TOKEN_TIMEOUT', 60)))
                            ->get($this->getCredentialsUrl());
 
             if (!$response->successful()) {
@@ -113,7 +113,7 @@ class MicrosoftPartnerCenterService
                 'token_prefix' => substr($token, 0, 20) . '...'
             ]);
 
-            $response = Http::timeout(20)
+            $response = Http::timeout(config('services.microsoft.create_customer_timeout', env('MICROSOFT_API_CREATE_CUSTOMER_TIMEOUT', 120)))
                            ->withHeaders([
                                'Content-Type' => 'application/json',
                                'Accept' => 'application/json',
@@ -182,7 +182,7 @@ class MicrosoftPartnerCenterService
         ];
 
         try {
-            $response = Http::timeout(15)
+            $response = Http::timeout(config('services.microsoft.agreement_timeout', env('MICROSOFT_API_AGREEMENT_TIMEOUT', 60)))
                            ->withHeaders([
                                'Authorization' => 'Bearer ' . $token,
                                'Content-Type' => 'application/json'
@@ -218,7 +218,7 @@ class MicrosoftPartnerCenterService
         $token = $this->getAuthToken();
 
         try {
-            $response = Http::timeout(10)
+            $response = Http::timeout(config('services.microsoft.get_customer_timeout', env('MICROSOFT_API_GET_CUSTOMER_TIMEOUT', 60)))
                            ->withHeaders([
                                'Authorization' => 'Bearer ' . $token,
                                'Accept' => 'application/json'

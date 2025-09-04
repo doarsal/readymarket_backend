@@ -69,6 +69,18 @@ class TaxRegime extends Model
         return $this->belongsTo(Store::class);
     }
 
+    public function cfdiUsages()
+    {
+        return $this->belongsToMany(CfdiUsage::class, 'tax_regime_cfdi_usage')
+                    ->withPivot('active')
+                    ->withTimestamps();
+    }
+
+    public function billingInformation()
+    {
+        return $this->hasMany(BillingInformation::class);
+    }
+
     // Métodos helper
     public function getFormattedNameAttribute(): string
     {

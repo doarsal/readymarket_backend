@@ -28,6 +28,23 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'facturalo' => [
+        // Credentials
+        'api_key' => env('FACTURALO_API_KEY'),
+        'test_mode' => env('FACTURALO_TEST_MODE', true),
+
+        // Service URLs
+        'url_sandbox' => env('FACTURALO_URL_SANDBOX', 'https://dev.facturaloplus.com/api/rest/servicio'),
+        'url_production' => env('FACTURALO_URL_PRODUCTION', 'https://app.facturaloplus.com/api/rest/servicio'),
+
+        // Issuer data
+        'rfc' => env('FACTURALO_RFC'),
+        'razon_social' => env('FACTURALO_RAZON_SOCIAL'),
+        'regimen_fiscal' => env('FACTURALO_REGIMEN_FISCAL'),
+        'cp' => env('FACTURALO_CP'),
+        'no_certificado' => env('FACTURALO_NO_CERTIFICADO'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

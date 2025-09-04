@@ -19,7 +19,7 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .header {
-            background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%);
+            background: linear-gradient(135deg, #5f9223 0%, #95c23e 100%);
             color: white;
             padding: 20px;
             text-align: center;
@@ -49,7 +49,7 @@
             width: 120px;
         }
         .credential-value {
-            color: #0078d4;
+            color: #5f9223;
             font-family: 'Courier New', monospace;
             background-color: #e7f3ff;
             padding: 2px 6px;
@@ -76,14 +76,14 @@
         .button {
             display: inline-block;
             padding: 12px 24px;
-            background-color: #0078d4;
-            color: white;
+            background-color: #5f9223;
+            color: #ffffff!important;
             text-decoration: none;
             border-radius: 6px;
             margin: 20px 0;
         }
         .microsoft-logo {
-            color: #0078d4;
+            color: #ffffff;
             font-size: 24px;
             font-weight: bold;
         }
@@ -104,7 +104,7 @@
             <p>Tu cuenta Microsoft ha sido creada exitosamente. A continuación encontrarás los datos de acceso:</p>
 
             <div class="credentials-box">
-                <h3 style="margin-top: 0; color: #0078d4;">📋 Datos de Acceso</h3>
+                <h3 style="margin-top: 0; color: #5f9223;">📋 Datos de Acceso</h3>
 
                 <div class="credential-item">
                     <span class="credential-label">URL de Acceso:</span>
@@ -154,7 +154,7 @@
         <div class="footer">
             <p style="margin: 0; color: #666;">
                 <strong>ReadyMarket©</strong> |
-                <a href="https://simplesystems.mx/readymarketV4/mx/aviso-de-privacidad" style="color: #0078d4;">Aviso de privacidad</a>
+                <a href="{{ env('FRONTEND_URL') }}/aviso-de-privacidad" style="color: #0078d4;">Aviso de privacidad</a>
             </p>
             <p style="margin: 10px 0 0 0; font-size: 12px; color: #999;">
                 Este correo fue enviado automáticamente. Por favor no responder.

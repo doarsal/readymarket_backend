@@ -11,10 +11,12 @@ use Exception;
 class ProductProvisioningService
 {
     private $microsoftService;
+    private $partnerCenterApiUrl;
 
     public function __construct(MicrosoftPartnerCenterService $microsoftService)
     {
         $this->microsoftService = $microsoftService;
+        $this->partnerCenterApiUrl = config('services.microsoft.partner_center_base_url', env('MICROSOFT_PARTNER_CENTER_BASE_URL'));
     }
 
     /**
@@ -32,7 +34,7 @@ class ProductProvisioningService
             }
 
             // Get access token
-            $token = $this->microsoftService->getAccessToken();
+            $token = $this->microsoftService->getAuthToken();
             if (!$token) {
                 throw new Exception('Unable to get Microsoft Partner Center access token');
             }
@@ -129,8 +131,8 @@ class ProductProvisioningService
         $response = Http::withHeaders([
             'Content-Type' => 'application/json',
             'Authorization' => 'Bearer ' . $token
-        ])->timeout(30)
-          ->post("https://api.partnercenter.microsoft.com/v1/customers/{$customerId}/carts", $cartData);
+        ])->timeout(config('services.microsoft.create_cart_timeout', env('MICROSOFT_API_CREATE_CART_TIMEOUT', 120)))
+          ->post("{$this->partnerCenterApiUrl}/customers/{$customerId}/carts", $cartData);
 
         if (!$response->successful()) {
             Log::error("Failed to create cart", [
@@ -159,8 +161,8 @@ class ProductProvisioningService
     {
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token
-        ])->timeout(30)
-          ->post("https://api.partnercenter.microsoft.com/v1/customers/{$customerId}/carts/{$cartId}/checkout");
+        ])->timeout(config('services.microsoft.checkout_timeout', env('MICROSOFT_API_CHECKOUT_TIMEOUT', 180)))
+          ->post("{$this->partnerCenterApiUrl}/customers/{$customerId}/carts/{$cartId}/checkout");
 
         if (!$response->successful()) {
             Log::error("Failed to checkout cart", [
@@ -209,8 +211,8 @@ class ProductProvisioningService
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
                 'Authorization' => 'Bearer ' . $token
-            ])->timeout(30)
-              ->patch("https://api.partnercenter.microsoft.com/v1/customers/{$customerId}/usagebudget", $budgetData);
+            ])->timeout(config('services.microsoft.budget_timeout', env('MICROSOFT_API_BUDGET_TIMEOUT', 90)))
+              ->patch("{$this->partnerCenterApiUrl}/customers/{$customerId}/usagebudget", $budgetData);
 
             if ($response->successful()) {
                 Log::info("Azure usage budget set", [

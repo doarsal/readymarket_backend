@@ -15,6 +15,7 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: "organization", type: "string", maxLength: 255, description: "Nombre de la organización"),
         new OA\Property(property: "rfc", type: "string", maxLength: 15, description: "RFC de la organización"),
         new OA\Property(property: "tax_regime_id", type: "integer", description: "ID del régimen fiscal"),
+        new OA\Property(property: "cfdi_usage_id", type: "integer", description: "ID del uso de CFDI"),
         new OA\Property(property: "postal_code", type: "string", maxLength: 10, description: "Código postal"),
         new OA\Property(property: "email", type: "string", format: "email", maxLength: 180, description: "Correo electrónico de facturación"),
         new OA\Property(property: "phone", type: "string", maxLength: 15, description: "Teléfono de contacto"),
@@ -55,6 +56,7 @@ class UpdateBillingInformationRequest extends FormRequest
                     ->whereNull('deleted_at')
             ],
             'tax_regime_id' => 'sometimes|integer|min:1',
+            'cfdi_usage_id' => 'sometimes|integer|min:1',
             'postal_code' => 'sometimes|string|max:10',
             'email' => 'sometimes|email|max:180',
             'phone' => 'sometimes|string|max:15',

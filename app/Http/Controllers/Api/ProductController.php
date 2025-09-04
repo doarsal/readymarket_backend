@@ -1521,4 +1521,70 @@ class ProductController extends ApiController
             ], 500);
         }
     }
+
+    /**
+     * @OA\Get(
+     *     path="/api/v1/products/slide",
+     *     tags={"Products"},
+     *     summary="Get slide products",
+     *     description="Returns cached list of products marked for slide display",
+     *     @OA\Parameter(
+     *         name="limit",
+     *         in="query",
+     *         description="Number of products to return",
+     *         required=false,
+     *         @OA\Schema(type="integer", minimum=1, maximum=50, default=10)
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Successful operation",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="data", type="array", @OA\Items(ref="#/components/schemas/Product")),
+     *             @OA\Property(property="message", type="string", example="Slide products retrieved successfully")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=500,
+     *         description="Internal server error"
+     *     )
+     * )
+     */
+    public function slide(Request $request): JsonResponse
+    {
+        try {
+            $limit = min((int) $request->get('limit', 10), 50);
+
+            // Cache por 15 minutos para productos de slide
+            $cacheKey = "products_slide_limit_{$limit}";
+            $slideProducts = Cache::remember($cacheKey, 900, function () use ($limit) {
+                return Product::where('is_slide', 1)
+                    ->where('is_active', true)
+                    ->whereNotNull('Id')
+                    ->where('UnitPrice', '>', 0)
+                    ->whereNull('deleted_at')
+                    ->orderBy('created_at', 'desc')
+                    ->limit($limit)
+                    ->get();
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => ProductResource::collection($slideProducts),
+                'message' => 'Slide products retrieved successfully',
+                'meta' => [
+                    'total' => $slideProducts->count(),
+                    'limit' => $limit,
+                    'cached' => Cache::has($cacheKey)
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error retrieving slide products',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
 }

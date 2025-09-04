@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\PaymentCardController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\MitecPaymentController;
+use App\Http\Controllers\Api\CfdiUsageController;
 
 /*
 |--------------------------------------------------------------------------
@@ -77,6 +78,7 @@ Route::prefix('v1')->group(function () {
     Route::get('products', [ProductController::class, 'index']);
     Route::get('products/popular', [ProductController::class, 'popular']);
     Route::get('products/featured', [ProductController::class, 'featured']);
+    Route::get('products/slide', [ProductController::class, 'slide']);
     Route::get('products/search', [ProductController::class, 'search']);
     Route::get('products/by-product-id/{productId}', [ProductController::class, 'showByProductId']);
     Route::get('products/detail/{id}', [ProductController::class, 'showDetail']); // Nueva ruta para ID interno
@@ -91,11 +93,18 @@ Route::prefix('v1')->group(function () {
     Route::get('tax-regimes', [TaxRegimeController::class, 'index']);
     Route::get('tax-regimes/grouped', [TaxRegimeController::class, 'getGrouped']);
     Route::get('tax-regimes/{taxRegime}', [TaxRegimeController::class, 'show']);
+    Route::get('tax-regimes/{taxRegime}/cfdi-usages', [TaxRegimeController::class, 'getCfdiUsages']);
 
     // Public postal codes endpoints (para autocompletar direcciones)
     Route::get('postal-codes/search/{code}', [PostalCodeController::class, 'searchByCode']);
     Route::get('postal-codes/autocomplete', [PostalCodeController::class, 'autocomplete']);
     Route::get('postal-codes/address/{code}', [PostalCodeController::class, 'getAddressByCode']);
+
+    // Public CFDI usages endpoints (para consulta pública)
+    Route::get('cfdi-usages', [CfdiUsageController::class, 'index']);
+    Route::get('cfdi-usages/by-person-type/{personType}', [CfdiUsageController::class, 'getByPersonType']);
+    Route::get('cfdi-usages/by-tax-regime/{taxRegimeId}', [CfdiUsageController::class, 'getByTaxRegime']);
+    Route::get('cfdi-usages/{cfdiUsage}', [CfdiUsageController::class, 'show']);
 
     // Health check endpoint (público)
     Route::get('health', [HealthController::class, 'check']);
@@ -183,6 +192,11 @@ Route::prefix('v1')->group(function () {
         // Tax Regimes CRUD endpoints (solo operaciones que requieren autenticación)
         Route::apiResource('tax-regimes', TaxRegimeController::class)->except(['index', 'show']);
         Route::post('tax-regimes/{taxRegime}/toggle-status', [TaxRegimeController::class, 'toggleStatus']);
+
+        // CFDI Usages CRUD endpoints (operaciones que requieren autenticación)
+        Route::apiResource('cfdi-usages', CfdiUsageController::class)->except(['index', 'show']);
+        Route::post('cfdi-usages/{cfdiUsage}/toggle-status', [CfdiUsageController::class, 'toggleStatus']);
+        Route::post('cfdi-usages/{cfdiUsage}/sync-tax-regimes', [CfdiUsageController::class, 'syncTaxRegimes']);
 
         // Postal Codes CRUD endpoints
         Route::apiResource('postal-codes', PostalCodeController::class);
@@ -327,4 +341,13 @@ Route::prefix('v1')->group(function () {
 
     }); // Cierre del middleware auth:sanctum
 
-});
+    // Electronic invoice routes
+    Route::prefix('invoicing')->group(function () {
+        Route::get('test-connection', [\App\Http\Controllers\InvoiceController::class, 'testConnection']);
+
+        // Protected routes that require authentication
+        Route::middleware('auth:sanctum')->group(function () {
+            Route::post('generate', [\App\Http\Controllers\InvoiceController::class, 'generateInvoice']);
+            Route::get('credits', [\App\Http\Controllers\InvoiceController::class, 'getAvailableCredits']);
+        });
+    });});

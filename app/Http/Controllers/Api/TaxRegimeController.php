@@ -455,4 +455,66 @@ class TaxRegimeController extends Controller
             'data' => $taxRegime
         ]);
     }
+
+    /**
+     * @OA\Get(
+     *     path="/api/v1/tax-regimes/{id}/cfdi-usages",
+     *     tags={"Tax Regimes"},
+     *     summary="Get CFDI usages for a tax regime (PUBLIC)",
+     *     description="Gets all CFDI usages available for a specific tax regime using the pivot table relationship",
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         description="Tax regime ID",
+     *         required=true,
+     *         @OA\Schema(type="integer")
+     *     ),
+     *     @OA\Parameter(
+     *         name="active",
+     *         in="query",
+     *         description="Filter by active CFDI usages only",
+     *         required=false,
+     *         @OA\Schema(type="boolean", default=true)
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="CFDI usages retrieved successfully",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="CFDI usages retrieved successfully"),
+     *             @OA\Property(property="data", type="array", @OA\Items(ref="#/components/schemas/CfdiUsage"))
+     *         )
+     *     ),
+     *     @OA\Response(response=404, description="Tax regime not found")
+     * )
+     */
+    public function getCfdiUsages(TaxRegime $taxRegime, Request $request): JsonResponse
+    {
+        try {
+            $query = $taxRegime->cfdiUsages();
+
+            // Filter by active CFDI usages if requested
+            if ($request->boolean('active', true)) {
+                $query->where('cfdi_usages.active', true);
+            }
+
+            // Only include active pivot relationships
+            $query->wherePivot('active', true);
+
+            $cfdiUsages = $query->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'CFDI usages retrieved successfully',
+                'data' => $cfdiUsages
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve CFDI usages',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

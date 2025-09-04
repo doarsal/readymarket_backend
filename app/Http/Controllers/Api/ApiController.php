@@ -38,6 +38,11 @@ use App\Http\Controllers\Controller;
  *     description="Microsoft products management"
  * )
  *
+ * @OA\Tag(
+ *     name="CFDI Usages",
+ *     description="Mexican CFDI usage codes management for electronic invoicing"
+ * )
+ *
  * @OA\Schema(
  *     schema="Category",
  *     type="object",

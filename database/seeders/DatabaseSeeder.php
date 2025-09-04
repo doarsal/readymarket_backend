@@ -26,6 +26,7 @@ class DatabaseSeeder extends Seeder
             // Data seeders - SOLO si no existen datos
             CategorySeeder::class,
             ActivitySeeder::class,
+            CfdiUsageSeeder::class,
             // ProductSeeder::class, // COMENTADO - No crear productos automáticamente
         ]);
 
