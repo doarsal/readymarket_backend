@@ -50,7 +50,9 @@ class UpdateBillingInformationRequest extends FormRequest
                 'sometimes',
                 'string',
                 'max:15',
-                Rule::unique('billing_information', 'rfc')->ignore($billingId)
+                Rule::unique('billing_information', 'rfc')
+                    ->ignore($billingId)
+                    ->whereNull('deleted_at')
             ],
             'tax_regime_id' => 'sometimes|integer|min:1',
             'postal_code' => 'sometimes|string|max:10',
@@ -65,7 +67,9 @@ class UpdateBillingInformationRequest extends FormRequest
                 'sometimes',
                 'string',
                 'max:20',
-                Rule::unique('billing_information', 'code')->ignore($billingId)
+                Rule::unique('billing_information', 'code')
+                    ->ignore($billingId)
+                    ->whereNull('deleted_at')
             ],
             'is_default' => 'sometimes|boolean'
         ];

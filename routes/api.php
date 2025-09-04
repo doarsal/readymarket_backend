@@ -43,6 +43,9 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
+// Root API endpoints
+// Nota: Las rutas de perfil ahora están en el grupo v1, bajo auth:sanctum
+
 // Microsoft Marketplace API Routes
 Route::prefix('v1')->group(function () {
 
@@ -232,7 +235,10 @@ Route::prefix('v1')->group(function () {
     Route::post('users/{user}/roles', [UserController::class, 'assignRoles']);
     Route::delete('users/{user}/roles/{roleId}', [UserController::class, 'removeRole']);
 
-    // Roles endpoints
+    // User Profile endpoints
+    Route::get('user/profile-data', [UserController::class, 'getProfileData']);
+    Route::post('user/profile', [UserController::class, 'updateProfile']);
+    Route::delete('user/profile', [UserController::class, 'deleteProfile']);    // Roles endpoints
     Route::apiResource('roles', RoleController::class);
     Route::get('roles/{role}/permissions', [RoleController::class, 'permissions']);
     Route::post('roles/{role}/permissions', [RoleController::class, 'assignPermissions']);

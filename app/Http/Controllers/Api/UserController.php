@@ -8,6 +8,8 @@ use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
@@ -603,5 +605,254 @@ class UserController extends Controller
             'message' => 'User activated successfully',
             'data' => $user->load('roles')
         ]);
+    }
+
+    /**
+     * Update current user profile
+     */
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // Debug para verificar qué está recibiendo el servidor
+        \Log::info('Updating profile for user ID: ' . $user->id);
+        \Log::info('Request data:', $request->except(['avatar'])); // Excluir avatar para evitar logs enormes
+        \Log::info('Request Content-Type: ' . $request->header('Content-Type'));
+        \Log::info('All Request Headers: ', $request->headers->all());
+
+        // Log específico para el archivo
+        if ($request->hasFile('avatar')) {
+            $avatar = $request->file('avatar');
+            \Log::info('Avatar file info:', [
+                'original_name' => $avatar->getClientOriginalName(),
+                'mime_type' => $avatar->getMimeType(),
+                'extension' => $avatar->getClientOriginalExtension(),
+                'size' => $avatar->getSize(),
+                'error' => $avatar->getError(),
+                'temp_path' => $avatar->getPathname(),
+                'is_valid' => $avatar->isValid()
+            ]);
+
+            // Verificar si el archivo es realmente una imagen
+            try {
+                $imageInfo = getimagesize($avatar->getPathname());
+                \Log::info('Image validation passed with getimagesize: ', [
+                    'width' => $imageInfo[0] ?? 'unknown',
+                    'height' => $imageInfo[1] ?? 'unknown',
+                    'type' => $imageInfo[2] ?? 'unknown',
+                    'mime' => $imageInfo['mime'] ?? 'unknown'
+                ]);
+            } catch (\Exception $e) {
+                \Log::error('Error validating image with getimagesize: ' . $e->getMessage());
+            }
+        } else {
+            \Log::info('No avatar file in request');
+            if ($request->has('avatar')) {
+                \Log::info('Avatar key exists but is not a file. Value type: ' . gettype($request->input('avatar')));
+                \Log::info('Avatar value dump: ' . json_encode($request->input('avatar')));
+            }
+
+            // Revisar todos los archivos en la solicitud
+            \Log::info('All files in request: ', $request->allFiles());
+        }
+
+        try {
+            $validated = $request->validate([
+                'first_name' => 'required|string|max:255',
+                'last_name' => 'required|string|max:255',
+                'email' => 'required|email|unique:users,email,' . $user->id,
+                'phone' => 'nullable|string|max:20',
+                'current_password' => 'nullable|required_with:password|string',
+                'password' => 'nullable|string|min:8|confirmed',
+                'avatar' => 'nullable|max:5120' // Eliminar validaciones específicas temporalmente
+            ]);
+
+            \Log::info('Validation passed successfully');
+
+            // If password is being changed, verify current password
+            if (!empty($validated['password'])) {
+                if (empty($validated['current_password']) || !Hash::check($validated['current_password'], $user->password)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'La contraseña actual es incorrecta'
+                    ], 422);
+                }
+                $validated['password'] = Hash::make($validated['password']);
+            } else {
+                unset($validated['password']);
+            }
+
+            // Handle avatar upload
+            if ($request->hasFile('avatar')) {
+                try {
+                    $avatar = $request->file('avatar');
+                    \Log::info('Processing avatar after validation: ' . $avatar->getClientOriginalName());
+
+                    // Validar manualmente que sea una imagen
+                    $extension = strtolower($avatar->getClientOriginalExtension());
+                    $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+                    if (!in_array($extension, $allowedExtensions)) {
+                        \Log::error('Invalid file extension: ' . $extension);
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'El archivo debe ser una imagen (jpg, jpeg, png, gif, webp)'
+                        ], 422);
+                    }
+
+                    // Generar un nombre de archivo único con timestamp
+                    $filename = time() . '_' . Str::random(10) . '.' . $extension;
+
+                    // Almacenar el archivo manualmente
+                    $path = 'avatars/' . $filename;
+                    Storage::disk('public')->put($path, file_get_contents($avatar->getRealPath()));
+
+                    \Log::info('Avatar stored successfully at: ' . $path);
+                    $validated['avatar'] = $path;
+
+                    // Si el usuario ya tenía un avatar, eliminarlo
+                    if ($user->avatar && Storage::disk('public')->exists($user->avatar)) {
+                        Storage::disk('public')->delete($user->avatar);
+                        \Log::info('Previous avatar deleted: ' . $user->avatar);
+                    }
+                } catch (\Exception $e) {
+                    \Log::error('Error saving avatar: ' . $e->getMessage());
+                    throw new \Exception('Error al procesar la imagen: ' . $e->getMessage());
+                }
+            }
+
+            // Remove current_password from data to update
+            unset($validated['current_password']);
+
+            $user->update($validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Perfil actualizado correctamente',
+                'data' => $user->fresh()
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('Validation error:', $e->errors());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('Error updating profile: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al actualizar el perfil: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete current user profile (soft delete)
+     */
+    public function deleteProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // Soft delete the user
+        $user->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cuenta eliminada correctamente'
+        ]);
+    }
+
+    /**
+     * Get user profile data for header component
+     */
+    public function getProfileData(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+
+            // Initialize default values
+            $microsoftAccounts = collect([]);
+            $ordersCount = 0;
+            $totalInvestment = 0.00;
+            $billingInformationCount = 0;
+
+            // Get Microsoft Accounts count and data (with error handling)
+            try {
+                $microsoftAccounts = \App\Models\MicrosoftAccount::where('user_id', $user->id)
+                    ->where('is_active', true)
+                    ->select('id', 'organization', 'domain', 'domain_concatenated', 'email', 'is_default')
+                    ->get();
+            } catch (\Exception $e) {
+                // Log error but continue
+                \Log::warning('Error fetching Microsoft accounts: ' . $e->getMessage());
+            }
+
+            // Get orders count and total investment for completed orders (with error handling)
+            try {
+                $ordersData = \App\Models\Order::where('user_id', $user->id)
+                    ->whereIn('payment_status', ['paid'])
+                    ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(total_amount), 0) as total_investment')
+                    ->first();
+
+                $ordersCount = $ordersData->orders_count ?? 0;
+                $totalInvestment = $ordersData->total_investment ?? 0.00;
+            } catch (\Exception $e) {
+                // Log error but continue
+                \Log::warning('Error fetching orders data: ' . $e->getMessage());
+            }
+
+            // Get billing information count (with error handling)
+            try {
+                $billingInformationCount = \App\Models\BillingInformation::where('user_id', $user->id)
+                    ->where('active', true)
+                    ->count();
+            } catch (\Exception $e) {
+                // Log error but continue
+                \Log::warning('Error fetching billing information: ' . $e->getMessage());
+            }
+
+            // Check profile completion
+            $isProfileCompleted = !empty($user->first_name) &&
+                                 !empty($user->last_name) &&
+                                 !empty($user->phone);
+
+            // Check if user has Microsoft accounts
+            $hasMicrosoftAccount = $microsoftAccounts->count() > 0;
+
+            // Check if user has billing information
+            $hasBillingInformation = $billingInformationCount > 0;
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'microsoft_accounts' => $microsoftAccounts->map(function($account) {
+                        return [
+                            'id' => $account->id,
+                            'organization' => $account->organization ?? '',
+                            'domain' => $account->domain ?? '',
+                            'domain_concatenated' => $account->domain_concatenated ?? '',
+                            'email' => $account->email ?? '',
+                            'is_default' => $account->is_default ?? false
+                        ];
+                    }),
+                    'orders_count' => (int) $ordersCount,
+                    'total_investment' => (float) $totalInvestment,
+                    'billing_information_count' => (int) $billingInformationCount,
+                    'is_profile_completed' => $isProfileCompleted,
+                    'has_microsoft_account' => $hasMicrosoftAccount,
+                    'has_billing_information' => $hasBillingInformation
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error in getProfileData: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener datos del perfil',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
     }
 }

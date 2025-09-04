@@ -10584,10 +10584,10 @@
             },
             "BillingInformation": {
                 "title": "Billing Information",
-                "description": "Información de facturación del usuario",
+                "description": "Datos fiscales del usuario",
                 "properties": {
                     "id": {
-                        "description": "ID único de la información de facturación",
+                        "description": "ID único de los datos fiscales",
                         "type": "integer",
                         "format": "int64"
                     },

@@ -44,7 +44,7 @@ class StoreBillingInformationRequest extends FormRequest
     {
         return [
             'organization' => 'required|string|max:255',
-            'rfc' => 'required|string|max:15|unique:billing_information,rfc',
+            'rfc' => 'required|string|max:15|unique:billing_information,rfc,NULL,id,deleted_at,NULL',
             'tax_regime_id' => 'required|integer|min:1',
             'postal_code' => 'required|string|max:10',
             'email' => 'required|email|max:180',
@@ -54,7 +54,7 @@ class StoreBillingInformationRequest extends FormRequest
             'config_id' => 'required|integer|min:1',
             'store_id' => 'required|integer|min:1',
             'account_id' => 'nullable|integer|min:1',
-            'code' => 'required|string|max:20|unique:billing_information,code',
+            'code' => 'required|string|max:20|unique:billing_information,code,NULL,id,deleted_at,NULL',
             'is_default' => 'boolean'
         ];
     }

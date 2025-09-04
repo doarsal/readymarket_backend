@@ -11,7 +11,7 @@ use OpenApi\Attributes as OA;
     schema: "BillingInformation",
     type: "object",
     title: "Billing Information",
-    description: "Información de facturación del usuario",
+    description: "Datos fiscales del usuario",
     properties: [
         new OA\Property(property: "id", type: "integer", format: "int64", description: "ID único de la información de facturación"),
         new OA\Property(property: "organization", type: "string", maxLength: 255, description: "Nombre de la organización"),
