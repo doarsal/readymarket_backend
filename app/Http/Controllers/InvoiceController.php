@@ -114,14 +114,7 @@ class InvoiceController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => "Order #{$orderId} must be paid before invoicing. Current status: {$order->payment_status}"
-                ], 400, [
-                    'Content-Type' => 'application/json',
-                    'Access-Control-Allow-Origin' => 'http://localhost:5173',
-                    'Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS',
-                    'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
-                    'X-Invoice-Debug' => 'order-not-paid',
-                    'X-Order-ID' => $orderId
-                ]);
+                ], 400);
             }
 
             // Check if already has invoice
@@ -145,11 +138,6 @@ class InvoiceController extends Controller
                             'xml' => route('invoices.download.xml', $existingInvoice->id)
                         ]
                     ]
-                ], 200, [
-                    'Content-Type' => 'application/json',
-                    'Access-Control-Allow-Origin' => 'http://localhost:5173',
-                    'Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS',
-                    'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With'
                 ]);
             }
 
@@ -201,14 +189,6 @@ class InvoiceController extends Controller
                         'xml' => route('invoices.download.xml', $invoice->id)
                     ]
                 ]
-            ], 200, [
-                'Content-Type' => 'application/json',
-                'Access-Control-Allow-Origin' => 'http://localhost:5173',
-                'Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS',
-                'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
-                'X-Invoice-Debug' => 'success-response',
-                'X-Order-ID' => $orderId,
-                'X-Invoice-ID' => $invoice->id
             ]);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
@@ -216,11 +196,7 @@ class InvoiceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => "Order #{$orderId} not found"
-            ], 404, [
-                'Content-Type' => 'application/json',
-                'X-Invoice-Debug' => 'order-not-found',
-                'X-Order-ID' => $orderId
-            ]);
+            ], 404);
 
         } catch (Exception $e) {
             Log::error('Error generating invoice from order ID', [
@@ -241,11 +217,7 @@ class InvoiceController extends Controller
                     'line' => $e->getLine(),
                     'order_id' => $orderId
                 ]
-            ], 500, [
-                'Content-Type' => 'application/json',
-                'X-Invoice-Debug' => 'exception-error',
-                'X-Order-ID' => $orderId
-            ]);
+            ], 500);
         } catch (\Throwable $e) {
             Log::critical('Critical error generating invoice from order ID', [
                 'order_id' => $orderId,
@@ -260,11 +232,7 @@ class InvoiceController extends Controller
                     'type' => get_class($e),
                     'message' => $e->getMessage()
                 ]
-            ], 500, [
-                'Content-Type' => 'application/json',
-                'X-Invoice-Debug' => 'critical-error',
-                'X-Order-ID' => $orderId
-            ]);
+            ], 500);
         }
     }
 
