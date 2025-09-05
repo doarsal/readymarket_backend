@@ -85,7 +85,7 @@ class OrderController extends Controller
      *         required=true,
      *         @OA\JsonContent(
      *             @OA\Property(property="cart_token", type="string", description="Cart token to convert to order"),
-     *             @OA\Property(property="payment_method", type="string", enum={"card", "paypal", "stripe"}, description="Payment method"),
+     *             @OA\Property(property="payment_method", type="string", enum={"credit_card", "debit_card"}, description="Payment method - Card type"),
      *             @OA\Property(property="payment_card_id", type="integer", description="Payment card ID (if payment_method is card)"),
      *             @OA\Property(property="billing_information_id", type="integer", description="Billing information ID"),
      *             @OA\Property(property="notes", type="string", description="Order notes")
@@ -101,7 +101,7 @@ class OrderController extends Controller
     {
         $request->validate([
             'cart_token' => 'required|string',
-            'payment_method' => 'required|string|in:card,paypal,stripe',
+            'payment_method' => 'required|string|in:credit_card,debit_card',
             'payment_card_id' => 'nullable|integer|exists:payment_cards,id',
             'billing_information_id' => 'required|integer|exists:billing_information,id',
             'notes' => 'nullable|string|max:500'

@@ -16,6 +16,7 @@ class PaymentSession extends Model
         'cart_id',
         'billing_information_id',
         'microsoft_account_id',
+        'payment_method',
         'expires_at'
     ];
 
@@ -65,7 +66,8 @@ class PaymentSession extends Model
         ?int $userId = null,
         ?int $cartId = null,
         ?int $billingInformationId = null,
-        ?int $microsoftAccountId = null
+        ?int $microsoftAccountId = null,
+        ?string $paymentMethod = null
     ): self {
         // Validar que los datos requeridos no estén vacíos
         if (empty($transactionReference)) {
@@ -88,6 +90,7 @@ class PaymentSession extends Model
             'cart_id' => $cartId,
             'billing_information_id' => $billingInformationId,
             'microsoft_account_id' => $microsoftAccountId,
+            'payment_method' => $paymentMethod,
             'expires_at' => Carbon::now()->addMinutes(10)
         ]);
     }

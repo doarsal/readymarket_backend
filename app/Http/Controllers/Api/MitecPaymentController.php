@@ -92,6 +92,7 @@ class MitecPaymentController extends Controller
             // Obtener billing_information_id y microsoft_account_id del request
             $billingInformationId = $request->input('billing_information_id');
             $microsoftAccountId = $request->input('microsoft_account_id');
+            $paymentMethod = $request->input('payment_method', 'credit_card'); // Default a credit_card si no se especifica
 
             Log::info('MITEC: Datos de entrada del request', [
                 'headers' => $request->headers->all(),
@@ -99,6 +100,7 @@ class MitecPaymentController extends Controller
                 'cart_token_hash' => $cartToken ? hash('sha256', $cartToken) : 'N/A',
                 'billing_information_id' => $billingInformationId,
                 'microsoft_account_id' => $microsoftAccountId,
+                'payment_method' => $paymentMethod,
                 'user_id' => $userId
             ]);
 
@@ -171,7 +173,8 @@ class MitecPaymentController extends Controller
                         $userId,
                         $cartId,
                         $billingInformationId,
-                        $microsoftAccountId
+                        $microsoftAccountId,
+                        $paymentMethod
                     );
 
                     Log::info('MITEC: PaymentSession creado exitosamente', [
@@ -179,7 +182,8 @@ class MitecPaymentController extends Controller
                         'cart_id_guardado' => $paymentSession->cart_id,
                         'user_id_guardado' => $paymentSession->user_id,
                         'billing_information_id_guardado' => $paymentSession->billing_information_id,
-                        'microsoft_account_id_guardado' => $paymentSession->microsoft_account_id
+                        'microsoft_account_id_guardado' => $paymentSession->microsoft_account_id,
+                        'payment_method_guardado' => $paymentSession->payment_method
                     ]);
 
                 } catch (\Exception $dbError) {
@@ -991,7 +995,7 @@ class MitecPaymentController extends Controller
 
             // Si el pago es exitoso, generar la orden
             if ($tokenResult['status'] === 'success') {
-                $order = $this->createOrderFromPaymentResponse($paymentResponse);
+                $order = $this->createOrderFromPaymentResponse($paymentResponse, $paymentSession);
                 $paymentResponse->update(['order_id' => $order->id]);
             }
 
@@ -1022,8 +1026,10 @@ class MitecPaymentController extends Controller
     /**
      * Crea una orden a partir de una respuesta de pago exitosa
      */
-    private function createOrderFromPaymentResponse(\App\Models\PaymentResponse $paymentResponse): \App\Models\Order
+    private function createOrderFromPaymentResponse(\App\Models\PaymentResponse $paymentResponse, ?\App\Models\PaymentSession $paymentSession = null): \App\Models\Order
     {
+        $paymentMethod = $paymentSession?->payment_method ?? 'credit_card';
+
         return \App\Models\Order::create([
             'order_number' => 'MKT' . substr(time(), -6) . rand(10, 99),
             'user_id' => $paymentResponse->user_id ?? 1, // ID por defecto si no hay usuario
@@ -1033,7 +1039,7 @@ class MitecPaymentController extends Controller
             'payment_status' => 'paid', // ENUM: pending,paid,failed,cancelled,refunded,partial_refund
             'total_amount' => $paymentResponse->amount,
             'currency_id' => 1, // Asumiendo MXN
-            'payment_method' => 'credit_card',
+            'payment_method' => $paymentMethod,
             'payment_gateway' => 'mitec',
             'transaction_id' => $paymentResponse->ds_trans_id,
             'paid_at' => $paymentResponse->created_at,
@@ -1046,6 +1052,13 @@ class MitecPaymentController extends Controller
      */
     private function createOrderFromPayment(\App\Models\Payment $payment): \App\Models\Order
     {
+        // Buscar PaymentSession asociada por cart_id para obtener payment_method
+        $paymentSession = \App\Models\PaymentSession::where('cart_id', $payment->cart_id)
+            ->where('user_id', $payment->user_id)
+            ->first();
+
+        $paymentMethod = $paymentSession?->payment_method ?? 'credit_card';
+
         // Por ahora crear una orden básica, puedes expandir esto según tu lógica de negocio
         return \App\Models\Order::create([
             'order_number' => 'ORD-' . time() . '-' . substr(md5($payment->reference), 0, 6),
@@ -1055,7 +1068,7 @@ class MitecPaymentController extends Controller
             'payment_status' => 'paid',
             'total_amount' => $payment->amount,
             'currency_id' => 1, // Asumiendo MXN
-            'payment_method' => 'credit_card',
+            'payment_method' => $paymentMethod,
             'payment_gateway' => 'mitec',
             'transaction_id' => $payment->transaction_id,
             'paid_at' => $payment->processed_at,

@@ -45,7 +45,7 @@ class OrderService
                 'currency_id' => $cart->currency_id ?? 1, // Default currency (MXN) si es NULL
                 'exchange_rate' => 1.0000, // Asumiendo MXN por defecto
                 'exchange_rate_date' => now(),
-                'payment_method' => 'credit_card',
+                'payment_method' => $paymentSession?->payment_method ?? 'credit_card', // Usar el tipo de tarjeta de la sesión o default a credit_card
                 'payment_gateway' => 'mitec',
                 'transaction_id' => $paymentResponse->transaction_reference,
                 'paid_at' => now(),
