@@ -5214,12 +5214,11 @@
                                         "type": "string"
                                     },
                                     "payment_method": {
-                                        "description": "Payment method",
+                                        "description": "Payment method - Card type",
                                         "type": "string",
                                         "enum": [
-                                            "card",
-                                            "paypal",
-                                            "stripe"
+                                            "credit_card",
+                                            "debit_card"
                                         ]
                                     },
                                     "payment_card_id": {
@@ -11440,132 +11439,26 @@
                 ]
             }
         },
-        "/api/invoicing/test-connection": {
-            "get": {
-                "tags": [
-                    "Invoicing"
-                ],
-                "summary": "Test connection with FacturaloPlus API",
-                "description": "Tests the connection with the FacturaloPlus API and returns available credits",
-                "operationId": "23cd7c23ba4c57517d8e3cd34ca92e71",
-                "responses": {
-                    "200": {
-                        "description": "Connection successful",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "properties": {
-                                        "success": {
-                                            "type": "boolean",
-                                            "example": true
-                                        },
-                                        "data": {
-                                            "properties": {
-                                                "credits": {
-                                                    "type": "integer",
-                                                    "example": 1000
-                                                },
-                                                "message": {
-                                                    "type": "string",
-                                                    "example": "Connection successful"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    },
-                                    "type": "object"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Connection failed",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "properties": {
-                                        "success": {
-                                            "type": "boolean",
-                                            "example": false
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "example": "Connection failed"
-                                        },
-                                        "errors": {
-                                            "type": "object"
-                                        }
-                                    },
-                                    "type": "object"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/invoicing/generate": {
+        "/api/v1/invoices/generate-from-order/{orderId}": {
             "post": {
                 "tags": [
-                    "Invoicing"
+                    "Invoices"
                 ],
-                "summary": "Generate CFDI 4.0 invoice",
-                "description": "Generates a Mexican electronic invoice (CFDI 4.0) from an order",
-                "operationId": "bc4c8ff32e1abc9984afcc51445b1aec",
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "order_id",
-                                    "cfdi_usage",
-                                    "tax_id",
-                                    "business_name",
-                                    "zip_code",
-                                    "tax_regime",
-                                    "payment_form",
-                                    "payment_method"
-                                ],
-                                "properties": {
-                                    "order_id": {
-                                        "type": "integer",
-                                        "example": 123
-                                    },
-                                    "cfdi_usage": {
-                                        "type": "string",
-                                        "example": "G03"
-                                    },
-                                    "tax_id": {
-                                        "type": "string",
-                                        "example": "XAXX010101000"
-                                    },
-                                    "business_name": {
-                                        "type": "string",
-                                        "example": "John Doe"
-                                    },
-                                    "zip_code": {
-                                        "type": "string",
-                                        "example": "64000"
-                                    },
-                                    "tax_regime": {
-                                        "type": "string",
-                                        "example": "616"
-                                    },
-                                    "payment_form": {
-                                        "type": "string",
-                                        "example": "99"
-                                    },
-                                    "payment_method": {
-                                        "type": "string",
-                                        "example": "PUE"
-                                    }
-                                },
-                                "type": "object"
-                            }
+                "summary": "Generate invoice from order ID",
+                "description": "Generates a CFDI 4.0 electronic invoice for a paid order using default test data",
+                "operationId": "6738faf87d163ee6dbf1b0e9765b7099",
+                "parameters": [
+                    {
+                        "name": "orderId",
+                        "in": "path",
+                        "description": "Order ID to generate invoice for",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 25
                         }
                     }
-                },
+                ],
                 "responses": {
                     "200": {
                         "description": "Invoice generated successfully",
@@ -11579,9 +11472,49 @@
                                         },
                                         "message": {
                                             "type": "string",
-                                            "example": "Invoice generated successfully"
+                                            "example": "Invoice generated successfully from order #25"
                                         },
                                         "data": {
+                                            "properties": {
+                                                "invoice_info": {
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "integer",
+                                                            "example": 33
+                                                        },
+                                                        "number": {
+                                                            "type": "string",
+                                                            "example": "FAC-000001"
+                                                        },
+                                                        "uuid": {
+                                                            "type": "string",
+                                                            "example": "12345678-1234-1234-1234-123456789012"
+                                                        },
+                                                        "status": {
+                                                            "type": "string",
+                                                            "example": "stamped"
+                                                        },
+                                                        "total": {
+                                                            "type": "string",
+                                                            "example": "546.00"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "download_urls": {
+                                                    "properties": {
+                                                        "pdf": {
+                                                            "type": "string",
+                                                            "example": "http://localhost:8000/api/v1/invoices/33/download/pdf"
+                                                        },
+                                                        "xml": {
+                                                            "type": "string",
+                                                            "example": "http://localhost:8000/api/v1/invoices/33/download/xml"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            },
                                             "type": "object"
                                         }
                                     },
@@ -11590,8 +11523,8 @@
                             }
                         }
                     },
-                    "422": {
-                        "description": "Validation error",
+                    "400": {
+                        "description": "Order not paid or invalid",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -11602,10 +11535,7 @@
                                         },
                                         "message": {
                                             "type": "string",
-                                            "example": "Invalid invoice data"
-                                        },
-                                        "errors": {
-                                            "type": "object"
+                                            "example": "Order #25 must be paid before invoicing"
                                         }
                                     },
                                     "type": "object"
@@ -11625,30 +11555,7 @@
                                         },
                                         "message": {
                                             "type": "string",
-                                            "example": "Order not found"
-                                        }
-                                    },
-                                    "type": "object"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Error generating invoice",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "properties": {
-                                        "success": {
-                                            "type": "boolean",
-                                            "example": false
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "example": "Error generating invoice"
-                                        },
-                                        "errors": {
-                                            "type": "object"
+                                            "example": "Order #25 not found"
                                         }
                                     },
                                     "type": "object"
@@ -11656,50 +11563,43 @@
                             }
                         }
                     }
-                },
-                "security": [
-                    {
-                        "sanctum": []
-                    }
-                ]
+                }
             }
         },
-        "/api/invoicing/credits": {
+        "/api/v1/invoices/{id}/download/pdf": {
             "get": {
                 "tags": [
-                    "Invoicing"
+                    "Invoices"
                 ],
-                "summary": "Get available credits",
-                "description": "Gets the available credits for generating invoices",
-                "operationId": "3ff358ada6357b8109d483f5729c43f8",
+                "summary": "Download invoice PDF",
+                "description": "Downloads the PDF file of a stamped invoice",
+                "operationId": "117a3da52f0bafa8640b36235fe51d54",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Invoice ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 33
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
-                        "description": "Credits retrieved successfully",
+                        "description": "PDF file download",
                         "content": {
-                            "application/json": {
+                            "application/pdf": {
                                 "schema": {
-                                    "properties": {
-                                        "success": {
-                                            "type": "boolean",
-                                            "example": true
-                                        },
-                                        "data": {
-                                            "properties": {
-                                                "credits": {
-                                                    "type": "integer",
-                                                    "example": 1000
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    },
-                                    "type": "object"
+                                    "type": "string",
+                                    "format": "binary"
                                 }
                             }
                         }
                     },
-                    "500": {
-                        "description": "Error retrieving credits",
+                    "400": {
+                        "description": "Invoice not stamped",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -11710,10 +11610,27 @@
                                         },
                                         "message": {
                                             "type": "string",
-                                            "example": "Error retrieving credits"
+                                            "example": "Invoice is not stamped yet"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Invoice not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": false
                                         },
-                                        "errors": {
-                                            "type": "object"
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Invoice not found"
                                         }
                                     },
                                     "type": "object"
@@ -11721,12 +11638,82 @@
                             }
                         }
                     }
-                },
-                "security": [
+                }
+            }
+        },
+        "/api/v1/invoices/{id}/download/xml": {
+            "get": {
+                "tags": [
+                    "Invoices"
+                ],
+                "summary": "Download invoice XML",
+                "description": "Downloads the XML file of a stamped invoice (CFDI)",
+                "operationId": "97b47e438b8879e234967a2a739309d8",
+                "parameters": [
                     {
-                        "sanctum": []
+                        "name": "id",
+                        "in": "path",
+                        "description": "Invoice ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 33
+                        }
                     }
-                ]
+                ],
+                "responses": {
+                    "200": {
+                        "description": "XML file download",
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invoice not stamped",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": false
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Invoice is not stamped yet"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Invoice not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": false
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Invoice not found"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     },
@@ -13602,8 +13589,8 @@
             "description": "Order Provisioning"
         },
         {
-            "name": "Invoicing",
-            "description": "Invoicing"
+            "name": "Invoices",
+            "description": "Invoices"
         }
     ]
 }

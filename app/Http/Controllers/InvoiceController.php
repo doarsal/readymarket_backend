@@ -2,108 +2,74 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Invoice;
+use App\Models\Order;
 use App\Services\InvoiceService;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use OpenApi\Annotations as OA;
+use Exception;
 
 /**
- * Electronic Invoicing Controller
- *
- * Controller for generating Mexican electronic invoices (CFDI 4.0) using FacturaloPlus
+ * Controller for handling invoice operations
+ * Manages CFDI 4.0 electronic invoicing through FacturaloPlus
  */
 class InvoiceController extends Controller
 {
-    /**
-     * The invoicing service
-     */
-    protected $invoiceService;
+    protected InvoiceService $invoiceService;
 
-    /**
-     * Controller constructor
-     */
     public function __construct(InvoiceService $invoiceService)
     {
         $this->invoiceService = $invoiceService;
-        $this->middleware('auth:sanctum')->except(['testConnection']);
     }
 
     /**
-     * Test connection with the invoicing service
-     *
-     * @OA\Get(
-     *     path="/api/invoicing/test-connection",
-     *     tags={"Invoicing"},
-     *     summary="Test connection with FacturaloPlus API",
-     *     description="Tests the connection with the FacturaloPlus API and returns available credits",
-     *     @OA\Response(
-     *         response=200,
-     *         description="Connection successful",
-     *         @OA\JsonContent(
-     *             @OA\Property(property="success", type="boolean", example=true),
-     *             @OA\Property(property="data", type="object",
-     *                 @OA\Property(property="credits", type="integer", example=1000),
-     *                 @OA\Property(property="message", type="string", example="Connection successful")
-     *             )
-     *         )
-     *     ),
-     *     @OA\Response(
-     *         response=500,
-     *         description="Connection failed",
-     *         @OA\JsonContent(
-     *             @OA\Property(property="success", type="boolean", example=false),
-     *             @OA\Property(property="message", type="string", example="Connection failed"),
-     *             @OA\Property(property="errors", type="object")
-     *         )
-     *     )
-     * )
-     */
-    public function testConnection()
-    {
-        $result = $this->invoiceService->getAvailableCredits();
-
-        return response()->json($result);
-    }
-
-    /**
-     * Generate invoice from an order
-     *
      * @OA\Post(
-     *     path="/api/invoicing/generate",
-     *     tags={"Invoicing"},
-     *     summary="Generate CFDI 4.0 invoice",
-     *     description="Generates a Mexican electronic invoice (CFDI 4.0) from an order",
-     *     security={{"sanctum":{}}},
-     *     @OA\RequestBody(
+     *     path="/api/v1/invoices/generate-from-order/{orderId}",
+     *     summary="Generate invoice from order ID",
+     *     description="Generates a CFDI 4.0 electronic invoice for a paid order using default test data",
+     *     tags={"Invoices"},
+     *     @OA\Parameter(
+     *         name="orderId",
+     *         in="path",
      *         required=true,
-     *         @OA\JsonContent(
-     *             required={"order_id", "cfdi_usage", "tax_id", "business_name", "zip_code", "tax_regime", "payment_form", "payment_method"},
-     *             @OA\Property(property="order_id", type="integer", example=123),
-     *             @OA\Property(property="cfdi_usage", type="string", example="G03"),
-     *             @OA\Property(property="tax_id", type="string", example="XAXX010101000"),
-     *             @OA\Property(property="business_name", type="string", example="John Doe"),
-     *             @OA\Property(property="zip_code", type="string", example="64000"),
-     *             @OA\Property(property="tax_regime", type="string", example="616"),
-     *             @OA\Property(property="payment_form", type="string", example="99"),
-     *             @OA\Property(property="payment_method", type="string", example="PUE")
-     *         )
+     *         description="Order ID to generate invoice for",
+     *         @OA\Schema(type="integer", example=25)
      *     ),
      *     @OA\Response(
      *         response=200,
      *         description="Invoice generated successfully",
      *         @OA\JsonContent(
      *             @OA\Property(property="success", type="boolean", example=true),
-     *             @OA\Property(property="message", type="string", example="Invoice generated successfully"),
-     *             @OA\Property(property="data", type="object")
+     *             @OA\Property(property="message", type="string", example="Invoice generated successfully from order #25"),
+     *             @OA\Property(
+     *                 property="data",
+     *                 type="object",
+     *                 @OA\Property(
+     *                     property="invoice_info",
+     *                     type="object",
+     *                     @OA\Property(property="id", type="integer", example=33),
+     *                     @OA\Property(property="number", type="string", example="FAC-000001"),
+     *                     @OA\Property(property="uuid", type="string", example="12345678-1234-1234-1234-123456789012"),
+     *                     @OA\Property(property="status", type="string", example="stamped"),
+     *                     @OA\Property(property="total", type="string", example="546.00")
+     *                 ),
+     *                 @OA\Property(
+     *                     property="download_urls",
+     *                     type="object",
+     *                     @OA\Property(property="pdf", type="string", example="http://localhost:8000/api/v1/invoices/33/download/pdf"),
+     *                     @OA\Property(property="xml", type="string", example="http://localhost:8000/api/v1/invoices/33/download/xml")
+     *                 )
+     *             )
      *         )
      *     ),
      *     @OA\Response(
-     *         response=422,
-     *         description="Validation error",
+     *         response=400,
+     *         description="Order not paid or invalid",
      *         @OA\JsonContent(
      *             @OA\Property(property="success", type="boolean", example=false),
-     *             @OA\Property(property="message", type="string", example="Invalid invoice data"),
-     *             @OA\Property(property="errors", type="object")
+     *             @OA\Property(property="message", type="string", example="Order #25 must be paid before invoicing")
      *         )
      *     ),
      *     @OA\Response(
@@ -111,164 +77,705 @@ class InvoiceController extends Controller
      *         description="Order not found",
      *         @OA\JsonContent(
      *             @OA\Property(property="success", type="boolean", example=false),
-     *             @OA\Property(property="message", type="string", example="Order not found")
-     *         )
-     *     ),
-     *     @OA\Response(
-     *         response=500,
-     *         description="Error generating invoice",
-     *         @OA\JsonContent(
-     *             @OA\Property(property="success", type="boolean", example=false),
-     *             @OA\Property(property="message", type="string", example="Error generating invoice"),
-     *             @OA\Property(property="errors", type="object")
+     *             @OA\Property(property="message", type="string", example="Order #25 not found")
      *         )
      *     )
      * )
+     *
+     * Generate invoice from order ID only (with default test data)
+     * Perfect for testing - uses default Mexican test RFC
+     *
+     * @param int $orderId
+     * @return JsonResponse
      */
-    public function generateInvoice(Request $request)
+    public function generateFromOrderId(int $orderId): JsonResponse
     {
-        // Validate input data
-        $validator = Validator::make($request->all(), [
-            'order_id' => 'required|integer',
-            'cfdi_usage' => 'required|string|size:3',
-            'tax_id' => 'required|string|min:12|max:13',
-            'business_name' => 'required|string|max:255',
-            'zip_code' => 'required|string|size:5',
-            'tax_regime' => 'required|string|size:3',
-            'payment_form' => 'required|string|size:2',
-            'payment_method' => 'required|string|size:3',
+        // Log inicial para debug
+        Log::info('=== INVOICE GENERATION REQUEST ===', [
+            'order_id' => $orderId,
+            'timestamp' => now(),
+            'request_ip' => request()->ip(),
+            'user_agent' => request()->userAgent()
         ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid invoice data',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+        try {
+            Log::info('Starting invoice generation for order', ['order_id' => $orderId]);
 
-        // Get order details (adapt this to your data model)
-        // You'll need to implement the logic to retrieve order details
-        $order = \App\Models\Order::with('items.product')->find($request->order_id);
+            $order = Order::with(['user', 'items'])->findOrFail($orderId);
+            Log::info('Order loaded successfully', [
+                'order_id' => $orderId,
+                'payment_status' => $order->payment_status,
+                'total_amount' => $order->total_amount
+            ]);
 
-        if (!$order) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Order not found',
-            ], 404);
-        }
+            // Verify order is paid
+            if ($order->payment_status !== 'paid') {
+                Log::warning('Order not paid', ['order_id' => $orderId, 'status' => $order->payment_status]);
+                return response()->json([
+                    'success' => false,
+                    'message' => "Order #{$orderId} must be paid before invoicing. Current status: {$order->payment_status}"
+                ], 400, [
+                    'Content-Type' => 'application/json',
+                    'Access-Control-Allow-Origin' => 'http://localhost:5173',
+                    'Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS',
+                    'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
+                    'X-Invoice-Debug' => 'order-not-paid',
+                    'X-Order-ID' => $orderId
+                ]);
+            }
 
-        // Prepare invoice data
-        $invoiceData = [
-            'series' => 'A',
-            'folio' => $order->id,
-            'payment_form' => $request->payment_form,
-            'subtotal' => $order->subtotal,
-            'currency' => 'MXN',
-            'total' => $order->total,
-            'payment_method' => $request->payment_method,
-            'expedition_place' => config('services.facturalo.cp'),
-            'issuer' => [
-                'tax_id' => config('services.facturalo.rfc'),
-                'name' => config('services.facturalo.razon_social'),
-                'tax_regime' => config('services.facturalo.regimen_fiscal'),
-            ],
-            'receiver' => [
-                'tax_id' => $request->tax_id,
-                'name' => $request->business_name,
-                'zip_code' => $request->zip_code,
-                'tax_regime' => $request->tax_regime,
-                'cfdi_usage' => $request->cfdi_usage,
-            ],
-            'items' => [],
-            'total_transferred_taxes' => 0,
-            'tax_base' => 0,
-        ];
+            // Check if already has invoice
+            $existingInvoice = Invoice::where('order_id', $orderId)->first();
+            if ($existingInvoice) {
+                Log::info('Invoice already exists', ['order_id' => $orderId, 'invoice_id' => $existingInvoice->id]);
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Invoice already exists for this order',
+                    'data' => [
+                        'invoice' => $existingInvoice,
+                        'invoice_info' => [
+                            'id' => $existingInvoice->id,
+                            'number' => $existingInvoice->invoice_number,
+                            'uuid' => $existingInvoice->uuid,
+                            'status' => $existingInvoice->status,
+                            'total' => $existingInvoice->total
+                        ],
+                        'download_urls' => [
+                            'pdf' => route('invoices.download.pdf', $existingInvoice->id),
+                            'xml' => route('invoices.download.xml', $existingInvoice->id)
+                        ]
+                    ]
+                ], 200, [
+                    'Content-Type' => 'application/json',
+                    'Access-Control-Allow-Origin' => 'http://localhost:5173',
+                    'Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS',
+                    'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With'
+                ]);
+            }
 
-        // Process order items (products)
-        foreach ($order->items as $item) {
-            $amount = $item->price * $item->quantity;
-            $taxAmount = $amount * 0.16;
-
-            $invoiceData['items'][] = [
-                'product_key' => $item->product->sat_key ?? '43232408', // SAT code for software
-                'quantity' => $item->quantity,
-                'unit_key' => 'E48',  // Service unit for software
-                'unit' => 'Service',
-                'description' => $item->product->name,
-                'unit_price' => $item->price,
-                'amount' => $amount,
-                'tax_amount' => $taxAmount,
+            // Use default test receiver data for easy testing
+            $receiverData = [
+                'rfc' => 'XAXX010101000',  // RFC genérico para pruebas
+                'name' => 'Cliente de Prueba S.A. de C.V.',
+                'postal_code' => '26015',   // Debe coincidir con LugarExpedicion
+                'tax_regime' => '616',      // Sin obligaciones fiscales (personas físicas)
+                'cfdi_use' => 'S01'         // Sin efectos fiscales
             ];
 
-            $invoiceData['total_transferred_taxes'] += $taxAmount;
-            $invoiceData['tax_base'] += $amount;
+            Log::info('Starting invoice service generation', [
+                'order_id' => $orderId,
+                'receiver_data' => $receiverData
+            ]);
+
+            $invoice = $this->invoiceService->generateInvoiceFromOrder($order, $receiverData);
+
+            Log::info('Invoice generated successfully', [
+                'order_id' => $orderId,
+                'invoice_id' => $invoice->id,
+                'uuid' => $invoice->uuid,
+                'status' => $invoice->status
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Invoice generated successfully from order #' . $orderId,
+                'data' => [
+                    'invoice' => $invoice->load(['order', 'user']),
+                    'order_info' => [
+                        'id' => $order->id,
+                        'number' => $order->order_number,
+                        'total' => $order->total_amount,
+                        'status' => $order->payment_status
+                    ],
+                    'invoice_info' => [
+                        'id' => $invoice->id,
+                        'number' => $invoice->invoice_number,
+                        'uuid' => $invoice->uuid,
+                        'status' => $invoice->status,
+                        'subtotal' => $invoice->subtotal,
+                        'tax' => $invoice->tax_amount,
+                        'total' => $invoice->total
+                    ],
+                    'download_urls' => [
+                        'pdf' => route('invoices.download.pdf', $invoice->id),
+                        'xml' => route('invoices.download.xml', $invoice->id)
+                    ]
+                ]
+            ], 200, [
+                'Content-Type' => 'application/json',
+                'Access-Control-Allow-Origin' => 'http://localhost:5173',
+                'Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With',
+                'X-Invoice-Debug' => 'success-response',
+                'X-Order-ID' => $orderId,
+                'X-Invoice-ID' => $invoice->id
+            ]);
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::error('Order not found', ['order_id' => $orderId]);
+            return response()->json([
+                'success' => false,
+                'message' => "Order #{$orderId} not found"
+            ], 404, [
+                'Content-Type' => 'application/json',
+                'X-Invoice-Debug' => 'order-not-found',
+                'X-Order-ID' => $orderId
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Error generating invoice from order ID', [
+                'order_id' => $orderId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+
+            // Ensure we always return a JSON response
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar la factura: ' . $e->getMessage(),
+                'error_details' => [
+                    'type' => get_class($e),
+                    'file' => basename($e->getFile()),
+                    'line' => $e->getLine(),
+                    'order_id' => $orderId
+                ]
+            ], 500, [
+                'Content-Type' => 'application/json',
+                'X-Invoice-Debug' => 'exception-error',
+                'X-Order-ID' => $orderId
+            ]);
+        } catch (\Throwable $e) {
+            Log::critical('Critical error generating invoice from order ID', [
+                'order_id' => $orderId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error crítico al procesar la solicitud',
+                'error_details' => [
+                    'type' => get_class($e),
+                    'message' => $e->getMessage()
+                ]
+            ], 500, [
+                'Content-Type' => 'application/json',
+                'X-Invoice-Debug' => 'critical-error',
+                'X-Order-ID' => $orderId
+            ]);
         }
+    }
 
-        // Decide whether to use XML or JSON based on preference
-        $useJson = true; // Change based on preference
+    /**
+     * Generate invoice from order
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function generateInvoice(Request $request): JsonResponse
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'order_id' => 'required|integer|exists:orders,id',
+                'receiver_rfc' => 'required|string|min:12|max:13',
+                'receiver_name' => 'required|string|max:255',
+                'receiver_postal_code' => 'required|string|size:5',
+                'receiver_tax_regime' => 'nullable|string|size:3',
+                'receiver_cfdi_use' => 'nullable|string|size:3'
+            ]);
 
-        if ($useJson) {
-            $jsonData = $this->invoiceService->prepareJsonCfdi40Data($invoiceData);
-            $result = $this->invoiceService->stampJson($jsonData);
-        } else {
-            $xml = $this->invoiceService->generateXmlCfdi40($invoiceData);
-            $result = $this->invoiceService->stampXml($xml);
-        }
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
 
-        // If invoicing was successful, update the order with invoice data
-        if ($result['success']) {
-            // Here you would implement the logic to save the invoice data in your database
-            // $order->update(['invoice_id' => $result['data']['uuid'], 'invoiced' => true]);
+            $order = Order::with(['user', 'items'])->findOrFail($request->order_id);
+
+            // Check if user owns the order
+            if (auth()->check() && $order->user_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access to order'
+                ], 403);
+            }
+
+            $receiverData = [
+                'rfc' => strtoupper($request->receiver_rfc),
+                'name' => $request->receiver_name,
+                'postal_code' => $request->receiver_postal_code,
+                'tax_regime' => $request->receiver_tax_regime ?? '616',
+                'cfdi_use' => $request->receiver_cfdi_use ?? 'G03'
+            ];
+
+            $invoice = $this->invoiceService->generateInvoiceFromOrder($order, $receiverData);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Invoice generated successfully',
-                'data' => $result['data'],
+                'data' => [
+                    'invoice' => $invoice->load(['order', 'user']),
+                    'download_urls' => [
+                        'pdf' => route('invoices.download.pdf', $invoice->id),
+                        'xml' => route('invoices.download.xml', $invoice->id)
+                    ]
+                ]
             ]);
-        } else {
+
+        } catch (Exception $e) {
+            Log::error('Error generating invoice', [
+                'order_id' => $request->order_id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error generating invoice',
-                'errors' => $result['errors'],
+                'message' => 'Error generating invoice: ' . $e->getMessage()
             ], 500);
         }
     }
 
     /**
-     * Get available invoicing credits
+     * Get invoice details
      *
+     * @param int $id
+     * @return JsonResponse
+     */
+    public function show(int $id): JsonResponse
+    {
+        try {
+            $invoice = Invoice::with(['order', 'user'])->findOrFail($id);
+
+            // Check if user owns the invoice
+            if (auth()->check() && $invoice->user_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access to invoice'
+                ], 403);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $invoice
+            ]);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invoice not found'
+            ], 404);
+        }
+    }
+
+    /**
+     * List user invoices
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function index(Request $request): JsonResponse
+    {
+        try {
+            $query = Invoice::with(['order', 'user']);
+
+            // Filter by authenticated user if logged in
+            if (auth()->check()) {
+                $query->where('user_id', auth()->id());
+            }
+
+            // Apply filters
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            if ($request->has('from_date')) {
+                $query->whereDate('issue_date', '>=', $request->from_date);
+            }
+
+            if ($request->has('to_date')) {
+                $query->whereDate('issue_date', '<=', $request->to_date);
+            }
+
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('invoice_number', 'like', "%{$search}%")
+                      ->orWhere('receiver_name', 'like', "%{$search}%")
+                      ->orWhere('receiver_rfc', 'like', "%{$search}%");
+                });
+            }
+
+            $invoices = $query->orderBy('created_at', 'desc')
+                             ->paginate($request->get('per_page', 15));
+
+            return response()->json([
+                'success' => true,
+                'data' => $invoices
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Error listing invoices', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error retrieving invoices'
+            ], 500);
+        }
+    }
+
+    /**
      * @OA\Get(
-     *     path="/api/invoicing/credits",
-     *     tags={"Invoicing"},
-     *     summary="Get available credits",
-     *     description="Gets the available credits for generating invoices",
-     *     security={{"sanctum":{}}},
+     *     path="/api/v1/invoices/{id}/download/pdf",
+     *     summary="Download invoice PDF",
+     *     description="Downloads the PDF file of a stamped invoice",
+     *     tags={"Invoices"},
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         required=true,
+     *         description="Invoice ID",
+     *         @OA\Schema(type="integer", example=33)
+     *     ),
      *     @OA\Response(
      *         response=200,
-     *         description="Credits retrieved successfully",
-     *         @OA\JsonContent(
-     *             @OA\Property(property="success", type="boolean", example=true),
-     *             @OA\Property(property="data", type="object",
-     *                 @OA\Property(property="credits", type="integer", example=1000)
-     *             )
+     *         description="PDF file download",
+     *         @OA\MediaType(
+     *             mediaType="application/pdf",
+     *             @OA\Schema(type="string", format="binary")
      *         )
      *     ),
      *     @OA\Response(
-     *         response=500,
-     *         description="Error retrieving credits",
+     *         response=400,
+     *         description="Invoice not stamped",
      *         @OA\JsonContent(
      *             @OA\Property(property="success", type="boolean", example=false),
-     *             @OA\Property(property="message", type="string", example="Error retrieving credits"),
-     *             @OA\Property(property="errors", type="object")
+     *             @OA\Property(property="message", type="string", example="Invoice is not stamped yet")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Invoice not found",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Invoice not found")
      *         )
      *     )
      * )
+     *
+     * Download invoice PDF
+     *
+     * @param int $id
+     * @return mixed
      */
-    public function getAvailableCredits()
+    public function downloadPdf(int $id)
     {
-        $result = $this->invoiceService->getAvailableCredits();
+        try {
+            $invoice = Invoice::findOrFail($id);
 
-        return response()->json($result);
+            if (!$invoice->isStamped()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invoice is not stamped yet'
+                ], 400);
+            }
+
+            $filename = "factura_{$invoice->invoice_number}.pdf";
+
+            // Intentar usar archivo físico primero
+            if ($invoice->hasPhysicalPdfFile()) {
+                $filePath = storage_path('app/' . $invoice->getPdfFilePath());
+
+                if (file_exists($filePath)) {
+                    return response()->download($filePath, $filename, [
+                        'Content-Type' => 'application/pdf'
+                    ]);
+                }
+            }
+
+            // Fallback a contenido Base64 de la BD
+            if (!$invoice->pdf_content && $invoice->uuid) {
+                $pdfContent = $this->invoiceService->generatePdfFromUuid($invoice->uuid);
+                if ($pdfContent) {
+                    $invoice->pdf_content = $pdfContent;
+                    $invoice->save();
+
+                    // Intentar guardar el archivo físico para futuros usos
+                    $invoice->savePhysicalFiles($invoice->xml_content, $pdfContent);
+                }
+            }
+
+            if (!$invoice->pdf_content) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'PDF not available for this invoice'
+                ], 404);
+            }
+
+            $pdfContent = base64_decode($invoice->pdf_content);
+
+            return response($pdfContent)
+                ->header('Content-Type', 'application/pdf')
+                ->header('Content-Disposition', "attachment; filename=\"{$filename}\"")
+                ->header('Content-Length', strlen($pdfContent));
+
+        } catch (Exception $e) {
+            Log::error('Error downloading PDF', [
+                'invoice_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error downloading PDF'
+            ], 500);
+        }
+    }
+
+    /**
+     * @OA\Get(
+     *     path="/api/v1/invoices/{id}/download/xml",
+     *     summary="Download invoice XML",
+     *     description="Downloads the XML file of a stamped invoice (CFDI)",
+     *     tags={"Invoices"},
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         required=true,
+     *         description="Invoice ID",
+     *         @OA\Schema(type="integer", example=33)
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="XML file download",
+     *         @OA\MediaType(
+     *             mediaType="application/xml",
+     *             @OA\Schema(type="string", format="binary")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=400,
+     *         description="Invoice not stamped",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Invoice is not stamped yet")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Invoice not found",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Invoice not found")
+     *         )
+     *     )
+     * )
+     *
+     * Download invoice XML
+     *
+     * @param int $id
+     * @return mixed
+     */
+    public function downloadXml(int $id)
+    {
+        try {
+            $invoice = Invoice::findOrFail($id);
+
+            if (!$invoice->isStamped()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invoice is not stamped yet'
+                ], 400);
+            }
+
+            $filename = "factura_{$invoice->invoice_number}.xml";
+
+            // Intentar usar archivo físico primero
+            if ($invoice->hasPhysicalXmlFile()) {
+                $filePath = storage_path('app/' . $invoice->getXmlFilePath());
+
+                if (file_exists($filePath)) {
+                    return response()->download($filePath, $filename, [
+                        'Content-Type' => 'application/xml'
+                    ]);
+                }
+            }
+
+            // Fallback a contenido de la BD
+            if (!$invoice->xml_content) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'XML not available for this invoice'
+                ], 404);
+            }
+
+            $xmlContent = $invoice->xml_content;
+
+            return response($xmlContent)
+                ->header('Content-Type', 'application/xml')
+                ->header('Content-Disposition', "attachment; filename=\"{$filename}\"")
+                ->header('Content-Length', strlen($xmlContent));
+
+        } catch (Exception $e) {
+            Log::error('Error downloading XML', [
+                'invoice_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error downloading XML'
+            ], 500);
+        }
+    }
+
+    /**
+     * Cancel an invoice
+     *
+     * @param int $id
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function cancel(int $id, Request $request): JsonResponse
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'reason' => 'required|string|max:255',
+                'replacement_uuid' => 'nullable|string|size:36'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $invoice = Invoice::findOrFail($id);
+
+            // Check if user owns the invoice
+            if (auth()->check() && $invoice->user_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access to invoice'
+                ], 403);
+            }
+
+            $success = $this->invoiceService->cancelInvoice(
+                $invoice,
+                $request->reason,
+                $request->replacement_uuid
+            );
+
+            if ($success) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Invoice cancelled successfully',
+                    'data' => $invoice->fresh()
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to cancel invoice'
+                ], 500);
+            }
+
+        } catch (Exception $e) {
+            Log::error('Error cancelling invoice', [
+                'invoice_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error cancelling invoice: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get invoice status from SAT
+     *
+     * @param int $id
+     * @return JsonResponse
+     */
+    public function getStatus(int $id): JsonResponse
+    {
+        try {
+            $invoice = Invoice::findOrFail($id);
+
+            // Check if user owns the invoice
+            if (auth()->check() && $invoice->user_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access to invoice'
+                ], 403);
+            }
+
+            if (!$invoice->isStamped()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invoice is not stamped yet'
+                ], 400);
+            }
+
+            // Here you would implement SAT status checking
+            // For now, return the current status
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'invoice_id' => $invoice->id,
+                    'uuid' => $invoice->uuid,
+                    'status' => $invoice->status,
+                    'sat_status' => 'vigente', // This would come from SAT API
+                    'last_checked' => now()
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Error getting invoice status', [
+                'invoice_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error getting invoice status'
+            ], 500);
+        }
+    }
+
+    /**
+     * Test FacturaloPlus connection and get credits
+     *
+     * @return JsonResponse
+     */
+    public function testConnection(): JsonResponse
+    {
+        try {
+            $connectionTest = $this->invoiceService->testConnection();
+            $creditsInfo = $this->invoiceService->getAvailableCredits();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'connection' => $connectionTest,
+                    'credits' => $creditsInfo
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Connection test failed: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

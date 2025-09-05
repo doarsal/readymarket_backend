@@ -50,7 +50,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 // Microsoft Marketplace API Routes
 Route::prefix('v1')->group(function () {
 
-    // Authentication endpoints (NO requieren autenticación) - CON RATE LIMITING
+    // Rutas de autenticación
     Route::prefix('auth')->middleware('throttle:10,1')->group(function () {
         Route::post('register', [AuthController::class, 'register']);
         Route::post('login', [AuthController::class, 'login']);
@@ -342,12 +342,25 @@ Route::prefix('v1')->group(function () {
     }); // Cierre del middleware auth:sanctum
 
     // Electronic invoice routes
-    Route::prefix('invoicing')->group(function () {
-        Route::get('test-connection', [\App\Http\Controllers\InvoiceController::class, 'testConnection']);
+    Route::prefix('invoices')->name('invoices.')->group(function () {
+        // Public routes
+        Route::get('test-connection', [\App\Http\Controllers\InvoiceController::class, 'testConnection'])->name('test');
+
+        // Quick invoice generation route (for testing/development)
+        Route::post('generate-from-order/{orderId}', [\App\Http\Controllers\InvoiceController::class, 'generateFromOrderId'])->name('generate.from.order');
+
+        // Public download routes (no auth required)
+        Route::get('{id}/download/pdf', [\App\Http\Controllers\InvoiceController::class, 'downloadPdf'])->name('download.pdf');
+        Route::get('{id}/download/xml', [\App\Http\Controllers\InvoiceController::class, 'downloadXml'])->name('download.xml');
 
         // Protected routes that require authentication
         Route::middleware('auth:sanctum')->group(function () {
-            Route::post('generate', [\App\Http\Controllers\InvoiceController::class, 'generateInvoice']);
-            Route::get('credits', [\App\Http\Controllers\InvoiceController::class, 'getAvailableCredits']);
+            Route::post('generate', [\App\Http\Controllers\InvoiceController::class, 'generateInvoice'])->name('generate');
+            Route::get('/', [\App\Http\Controllers\InvoiceController::class, 'index'])->name('index');
+            Route::get('{id}', [\App\Http\Controllers\InvoiceController::class, 'show'])->name('show');
+            Route::post('{id}/cancel', [\App\Http\Controllers\InvoiceController::class, 'cancel'])->name('cancel');
+            Route::get('{id}/status', [\App\Http\Controllers\InvoiceController::class, 'getStatus'])->name('status');
         });
-    });});
+    });
+
+}); // End v1 route group
