@@ -223,4 +223,17 @@ class Product extends Model
     {
         return is_numeric($this->ERPPrice) ? (float) $this->ERPPrice : 0;
     }
+
+    /**
+     * Genera el catalogItemId para Microsoft Partner Center
+     * Formato: ProductId:SkuId:Id (igual que el sistema anterior)
+     */
+    public function getMicrosoftCatalogItemIdAttribute()
+    {
+        if (!$this->ProductId || !$this->SkuId || !$this->Id) {
+            return null;
+        }
+
+        return "{$this->ProductId}:{$this->SkuId}:{$this->Id}";
+    }
 }
