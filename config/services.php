@@ -56,6 +56,20 @@ return [
         'credentials_url' => env('MICROSOFT_CREDENTIALS_URL'),
         'partner_center_base_url' => env('MICROSOFT_PARTNER_CENTER_BASE_URL'),
         'agreement_template_id' => env('MICROSOFT_AGREEMENT_TEMPLATE_ID'),
+
+        // API Timeouts (in seconds)
+        'token_timeout' => env('MICROSOFT_API_TOKEN_TIMEOUT', 60),
+        'create_cart_timeout' => env('MICROSOFT_API_CREATE_CART_TIMEOUT', 120),
+        'checkout_timeout' => env('MICROSOFT_API_CHECKOUT_TIMEOUT', 180),
+        'budget_timeout' => env('MICROSOFT_API_BUDGET_TIMEOUT', 90),
+
+        // Retry Configuration
+        'max_retries' => env('MICROSOFT_API_MAX_RETRIES', 3),
+        'retry_delay' => env('MICROSOFT_API_RETRY_DELAY', 2), // seconds
+
+        // Security
+        'fake_mode' => env('MICROSOFT_FAKE_MODE', false),
+        'log_sensitive_data' => env('MICROSOFT_LOG_SENSITIVE_DATA', false),
     ],
 
 ];

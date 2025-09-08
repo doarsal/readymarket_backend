@@ -115,6 +115,27 @@ class Product extends Model
         return number_format($this->erp_price_decimal, 2);
     }
 
+    /**
+     * Generate Microsoft Partner Center catalogItemId
+     * Format: ProductId:SkuId:Id (same as old system)
+     */
+    public function getCatalogItemIdAttribute(): ?string
+    {
+        if (empty($this->ProductId) || empty($this->SkuId) || empty($this->Id)) {
+            return null;
+        }
+
+        return $this->ProductId . ':' . $this->SkuId . ':' . $this->Id;
+    }
+
+    /**
+     * Check if product has all required fields for Microsoft provisioning
+     */
+    public function hasValidCatalogItemId(): bool
+    {
+        return !empty($this->ProductId) && !empty($this->SkuId) && !empty($this->Id);
+    }
+
     // Relationships
     public function store()
     {
