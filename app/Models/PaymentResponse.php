@@ -108,6 +108,60 @@ class PaymentResponse extends Model
     }
 
     /**
+     * Extrae los últimos 4 dígitos de un número de tarjeta de forma segura
+     */
+    public static function extractLastFourDigits(?string $cardNumber): ?string
+    {
+        if (!$cardNumber) {
+            return null;
+        }
+
+        // Limpiar el número de tarjeta (quitar espacios, guiones, asteriscos)
+        $cleaned = preg_replace('/[^0-9]/', '', $cardNumber);
+
+        // Si tiene al menos 4 dígitos, tomar los últimos 4
+        if (strlen($cleaned) >= 4) {
+            return substr($cleaned, -4);
+        }
+
+        // Si es menor a 4 dígitos pero tiene contenido, verificar si ya son los últimos 4
+        if (strlen($cleaned) > 0) {
+            return str_pad($cleaned, 4, '0', STR_PAD_LEFT);
+        }
+
+        return null;
+    }
+
+    /**
+     * Obtiene el número de tarjeta enmascarado para mostrar
+     */
+    public function getMaskedCardNumber(): ?string
+    {
+        if (!$this->card_last_four) {
+            return null;
+        }
+
+        return '**** **** **** ' . $this->card_last_four;
+    }
+
+    /**
+     * Obtiene información completa de la tarjeta para mostrar
+     */
+    public function getCardInfo(): array
+    {
+        return [
+            'masked_number' => $this->getMaskedCardNumber(),
+            'last_four' => $this->card_last_four,
+            'card_name' => $this->card_name,
+            'card_type' => $this->card_type,
+            'display_text' => $this->card_last_four ?
+                ($this->card_type ? strtoupper($this->card_type) : 'TARJETA') . ' terminada en ' . $this->card_last_four :
+                'Información de tarjeta no disponible'
+        ];
+    }
+
+    /**
+     * Crear una nueva respuesta de pago desde los datos de MITEC
      * Crea una respuesta de pago desde datos parseados de MITEC
      */
     public static function createFromMitecResponse(
@@ -224,9 +278,9 @@ class PaymentResponse extends Model
             'response_code' => $parsedData['r3ds_responseCode'] ?? null,
             'response_description' => $parsedData['r3ds_responseDescription'] ?? null,
 
-            // Datos de tarjeta
+            // Datos de tarjeta - Extraer últimos 4 dígitos de forma segura
             'card_type' => $parsedData['cc_type'] ?? null,
-            'card_last_four' => $parsedData['cc_number'] ?? null,
+            'card_last_four' => self::extractLastFourDigits($parsedData['cc_number'] ?? null),
             'card_name' => $parsedData['cc_name'] ?? null,
 
             // Vouchers

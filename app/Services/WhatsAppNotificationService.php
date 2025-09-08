@@ -702,4 +702,296 @@ class WhatsAppNotificationService
 
         return $message;
     }
+
+    /**
+     * Send WhatsApp message for successful Microsoft account creation
+     */
+    public function sendMicrosoftAccountSuccessNotification(array $accountData, string $password): void
+    {
+        try {
+            $phoneNumbers = env('WHATSAPP_NOTIFICATION_NUMBER');
+
+            if (!$phoneNumbers || !$this->graphToken || !$this->phoneId) {
+                Log::warning('WhatsApp configuration incomplete for Microsoft account success notification');
+                return;
+            }
+
+            // Convert comma-separated numbers to array
+            $phoneList = array_map('trim', explode(',', $phoneNumbers));
+
+            // Format message for WhatsApp
+            $message = $this->formatMicrosoftAccountSuccessMessage($accountData, $password);
+
+            // Send to each phone number
+            foreach ($phoneList as $phoneNumber) {
+                if (!empty($phoneNumber)) {
+                    try {
+                        $this->sendMessage($phoneNumber, $message);
+                        Log::info("WhatsApp Microsoft account success notification sent to {$phoneNumber} for account: {$accountData['domain_concatenated']}");
+                    } catch (Exception $sendException) {
+                        Log::error("Failed to send WhatsApp Microsoft account success notification to {$phoneNumber}: " . $sendException->getMessage());
+                        // Continue with next number even if one fails
+                    }
+                }
+            }
+
+        } catch (Exception $e) {
+            Log::error("Failed to send WhatsApp Microsoft account success notification: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Format the Microsoft account success message for WhatsApp
+     */
+    private function formatMicrosoftAccountSuccessMessage(array $accountData, string $password): string
+    {
+        $fullName = trim($accountData['first_name'] . ' ' . $accountData['last_name']);
+        $adminEmail = 'admin@' . $accountData['domain_concatenated'];
+
+        $message = "✅ *CUENTA MICROSOFT CREADA EXITOSAMENTE* ✅\n\n";
+
+        // Información de la cuenta
+        $message .= "👤 *CLIENTE:* {$fullName}\n";
+        $message .= "🏢 *EMPRESA:* " . ($accountData['company_name'] ?? $fullName) . "\n";
+        $message .= "📧 *EMAIL CLIENTE:* {$accountData['email']}\n";
+        $message .= "🌐 *DOMINIO:* {$accountData['domain_concatenated']}\n\n";
+
+        // Credenciales de acceso
+        $message .= "🔑 *CREDENCIALES DE MICROSOFT:*\n";
+        $message .= "📧 *Usuario:* {$adminEmail}\n";
+        $message .= "🔒 *Contraseña:* {$password}\n";
+        $message .= "🌐 *Portal:* https://admin.microsoft.com\n\n";
+
+        // Información adicional
+        $message .= "📍 *País:* " . ($accountData['country'] ?? 'N/A') . "\n";
+        $message .= "🏙️ *Ciudad:* " . ($accountData['city'] ?? 'N/A') . "\n";
+        $message .= "📞 *Teléfono:* " . ($accountData['phone'] ?? 'N/A') . "\n";
+
+        $message .= "\n⏰ *Fecha de Creación:* " . now()->format('d/m/Y H:i:s');
+        $message .= "\n\n✅ *Estado:* Cuenta activa y lista para usar";
+
+        return $message;
+    }
+
+    /**
+     * Send WhatsApp message for purchase confirmation to customer
+     */
+    public function sendPurchaseConfirmationToCustomer($order, $microsoftAccount = null, $paymentData = null): void
+    {
+        try {
+            // Get customer phone number
+            $customerPhone = $order->user->phone ?? null;
+
+            if (!$customerPhone || !$this->graphToken || !$this->phoneId) {
+                Log::warning('WhatsApp configuration incomplete or customer phone missing for purchase confirmation');
+                return;
+            }
+
+            // Format message for customer
+            $message = $this->formatCustomerPurchaseConfirmationMessage($order, $microsoftAccount, $paymentData);
+
+            try {
+                $this->sendMessage($customerPhone, $message);
+                Log::info("WhatsApp purchase confirmation sent to customer {$customerPhone} for order: {$order->order_number}", [
+                    'payment_reference' => $paymentData['reference'] ?? null
+                ]);
+            } catch (Exception $sendException) {
+                Log::error("Failed to send WhatsApp purchase confirmation to customer {$customerPhone}: " . $sendException->getMessage(), [
+                    'payment_data' => $paymentData
+                ]);
+            }
+
+        } catch (Exception $e) {
+            Log::error("Failed to send WhatsApp purchase confirmation to customer: " . $e->getMessage(), [
+                'payment_data' => $paymentData
+            ]);
+        }
+    }
+
+    /**
+     * Send WhatsApp message for purchase confirmation to admin numbers
+     */
+    public function sendPurchaseConfirmationToAdmins($order, $microsoftAccount = null, $paymentData = null): void
+    {
+        try {
+            $phoneNumbers = env('WHATSAPP_NOTIFICATION_NUMBER');
+
+            if (!$phoneNumbers || !$this->graphToken || !$this->phoneId) {
+                Log::warning('WhatsApp configuration incomplete for admin purchase confirmation');
+                return;
+            }
+
+            // Convert comma-separated numbers to array
+            $phoneList = array_map('trim', explode(',', $phoneNumbers));
+
+            // Format message for admins
+            $message = $this->formatAdminPurchaseConfirmationMessage($order, $microsoftAccount, $paymentData);
+
+            // Send to each admin phone number
+            foreach ($phoneList as $phoneNumber) {
+                if (!empty($phoneNumber)) {
+                    try {
+                        $this->sendMessage($phoneNumber, $message);
+                        Log::info("WhatsApp admin purchase confirmation sent to {$phoneNumber} for order: {$order->order_number}", [
+                            'payment_reference' => $paymentData['reference'] ?? null
+                        ]);
+                    } catch (Exception $sendException) {
+                        Log::error("Failed to send WhatsApp admin purchase confirmation to {$phoneNumber}: " . $sendException->getMessage(), [
+                            'payment_data' => $paymentData
+                        ]);
+                        // Continue with next number even if one fails
+                    }
+                }
+            }
+
+        } catch (Exception $e) {
+            Log::error("Failed to send WhatsApp admin purchase confirmation: " . $e->getMessage(), [
+                'payment_data' => $paymentData
+            ]);
+        }
+    }
+
+    /**
+     * Format the customer purchase confirmation message for WhatsApp
+     */
+    private function formatCustomerPurchaseConfirmationMessage($order, $microsoftAccount = null, $paymentData = null): string
+    {
+        $message = "🎉 *CONFIRMACIÓN DE COMPRA - READYMARKET* 🎉\n\n";
+
+        $message .= "✅ *¡Gracias por tu compra!*\n";
+        $message .= "📋 *Pedido:* {$order->order_number}\n";
+        $message .= "💰 *Total:* $" . number_format($order->total_amount, 2) . " {$order->currency->code}\n";
+
+        // Información de la transacción si está disponible
+        if ($paymentData) {
+            $message .= "\n💳 *INFORMACIÓN DE PAGO:*\n";
+            if (isset($paymentData['reference'])) {
+                $message .= "• Referencia: {$paymentData['reference']}\n";
+            }
+            if (isset($paymentData['auth_code'])) {
+                $message .= "• Autorización: {$paymentData['auth_code']}\n";
+            }
+            if (isset($paymentData['processed_at'])) {
+                $processedDate = \Carbon\Carbon::parse($paymentData['processed_at'])->format('d/m/Y H:i:s');
+                $message .= "• Procesado: {$processedDate}\n";
+            }
+        }
+
+        // Información de tarjeta si está disponible
+        if ($order->paymentResponse && $order->paymentResponse->card_last_four) {
+            $cardInfo = $order->paymentResponse->getCardInfo();
+            $message .= "• Tarjeta: {$cardInfo['display_text']}\n";
+        }
+
+        // Información del cliente
+        $message .= "\n👤 *DATOS DEL CLIENTE:*\n";
+        $message .= "• Nombre: {$order->user->name}\n";
+        $message .= "• Email: {$order->user->email}\n\n";
+
+        // Productos comprados
+        $message .= "🛒 *PRODUCTOS ADQUIRIDOS:*\n";
+        foreach ($order->items as $index => $item) {
+            $productName = $item->product_title ?? $item->product->ProductTitle ?? 'Producto sin nombre';
+            $message .= "• {$productName}\n";
+            $message .= "  Cantidad: {$item->quantity}\n";
+            $message .= "  Precio: $" . number_format($item->line_total, 2) . "\n\n";
+        }
+
+        // Información de Microsoft si existe
+        if ($microsoftAccount) {
+            $message .= "🔑 *CUENTA MICROSOFT CREADA:*\n";
+            $message .= "• Dominio: {$microsoftAccount->domain_concatenated}\n";
+            $message .= "• Usuario Admin: admin@{$microsoftAccount->domain_concatenated}\n";
+            $message .= "• Portal: https://admin.microsoft.com\n\n";
+        }
+
+        $message .= "📧 *Próximos pasos:*\n";
+        $message .= "• Recibirás un correo con todos los detalles\n";
+        $message .= "• Las credenciales se enviarán por separado\n";
+        $message .= "• El equipo de soporte se pondrá en contacto\n\n";
+
+        $message .= "🚀 *¡Disfruta tus nuevos productos Microsoft!*";
+
+        return $message;
+    }
+
+    /**
+     * Format the admin purchase confirmation message for WhatsApp
+     */
+    private function formatAdminPurchaseConfirmationMessage($order, $microsoftAccount = null, $paymentData = null): string
+    {
+        $message = "🆕 *NUEVA COMPRA REALIZADA* 🆕\n\n";
+
+        $message .= "📋 *ORDEN:* {$order->order_number}\n";
+        $message .= "💰 *TOTAL:* $" . number_format($order->total_amount, 2) . " {$order->currency->code}\n";
+        $message .= "📅 *FECHA:* " . $order->created_at->format('d/m/Y H:i:s') . "\n";
+
+        // Información de la transacción si está disponible
+        if ($paymentData) {
+            $message .= "\n💳 *TRANSACCIÓN:*\n";
+            if (isset($paymentData['reference'])) {
+                $message .= "• Referencia: {$paymentData['reference']}\n";
+            }
+            if (isset($paymentData['auth_code'])) {
+                $message .= "• Autorización: {$paymentData['auth_code']}\n";
+            }
+            if (isset($paymentData['amount']) && isset($paymentData['currency'])) {
+                $message .= "• Monto Procesado: $" . number_format($paymentData['amount'], 2) . " {$paymentData['currency']}\n";
+            }
+            if (isset($paymentData['processed_at'])) {
+                $processedDate = \Carbon\Carbon::parse($paymentData['processed_at'])->format('d/m/Y H:i:s');
+                $message .= "• Procesado: {$processedDate}\n";
+            }
+            $message .= "• Estado: ✅ EXITOSA\n";
+        }
+
+        // Información de tarjeta si está disponible
+        if ($order->paymentResponse && $order->paymentResponse->card_last_four) {
+            $cardInfo = $order->paymentResponse->getCardInfo();
+            $message .= "• Tarjeta: {$cardInfo['display_text']}\n";
+        }
+
+        // Información del cliente
+        $message .= "\n👤 *CLIENTE:*\n";
+        $message .= "• Nombre: {$order->user->name}\n";
+        $message .= "• Email: {$order->user->email}\n";
+        $message .= "• Teléfono: " . ($order->user->phone ?? 'N/A') . "\n";
+
+        // Información de facturación
+        if ($order->billingInformation) {
+            $billing = $order->billingInformation;
+            $message .= "\n🧾 *DATOS DE FACTURACIÓN:*\n";
+            $message .= "• RFC: {$billing->rfc}\n";
+            $message .= "• Razón Social: {$billing->company_name}\n";
+            $message .= "• CP: {$billing->postal_code}\n";
+            $message .= "• Régimen: " . ($billing->taxRegime->name ?? 'N/A') . "\n";
+        }
+
+        // Productos comprados
+        $message .= "\n🛒 *PRODUCTOS:*\n";
+        foreach ($order->items as $index => $item) {
+            $productName = $item->product_title ?? $item->product->ProductTitle ?? 'Producto sin nombre';
+            $message .= "• {$productName} (x{$item->quantity}) - $" . number_format($item->line_total, 2) . "\n";
+        }
+
+        // Información de Microsoft si existe
+        if ($microsoftAccount) {
+            $message .= "\n🔑 *CUENTA MICROSOFT:*\n";
+            $message .= "• Dominio: {$microsoftAccount->domain_concatenated}\n";
+            $message .= "• Microsoft ID: " . ($microsoftAccount->microsoft_id ?? 'Pendiente') . "\n";
+            $message .= "• Estado: " . ($microsoftAccount->is_active ? 'Activa' : 'Pendiente') . "\n";
+        }
+
+        $message .= "\n🎯 *ACCIÓN REQUERIDA:*\n";
+        $message .= "• Verificar transacción y datos de pago\n";
+        $message .= "• Confirmar aprovisionamiento de productos\n";
+        $message .= "• Seguimiento con el cliente\n";
+        $message .= "• Revisar sistema para más detalles\n";
+
+        if (isset($paymentData['reference'])) {
+            $message .= "\n📌 *Referencia de seguimiento:* {$paymentData['reference']}";
+        }
+
+        return $message;
+    }
 }

@@ -10,6 +10,8 @@ use App\Models\MicrosoftAccount;
 use App\Services\MicrosoftPartnerCenterService;
 use App\Services\MicrosoftAccountEmailService;
 use App\Services\MicrosoftErrorNotificationService;
+use App\Services\WhatsAppNotificationService;
+use App\Services\PurchaseConfirmationEmailService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -27,15 +29,21 @@ class MicrosoftAccountController extends Controller
     private MicrosoftPartnerCenterService $partnerCenterService;
     private MicrosoftAccountEmailService $emailService;
     private MicrosoftErrorNotificationService $errorNotificationService;
+    private WhatsAppNotificationService $whatsAppService;
+    private PurchaseConfirmationEmailService $purchaseEmailService;
 
     public function __construct(
         MicrosoftPartnerCenterService $partnerCenterService,
         MicrosoftAccountEmailService $emailService,
-        MicrosoftErrorNotificationService $errorNotificationService
+        MicrosoftErrorNotificationService $errorNotificationService,
+        WhatsAppNotificationService $whatsAppService,
+        PurchaseConfirmationEmailService $purchaseEmailService
     ) {
         $this->partnerCenterService = $partnerCenterService;
         $this->emailService = $emailService;
         $this->errorNotificationService = $errorNotificationService;
+        $this->whatsAppService = $whatsAppService;
+        $this->purchaseEmailService = $purchaseEmailService;
     }
 
     /**
@@ -197,6 +205,19 @@ class MicrosoftAccountController extends Controller
 
                 $this->logActivity('activate', $account, 'Cuenta Microsoft activada (MODO FAKE)');
 
+                // Simular envío de credenciales en modo fake
+                $fakePassword = 'FakePass123!';
+                $this->emailService->sendCredentials(
+                    $validated,
+                    $fakePassword
+                );
+
+                // Enviar notificación por WhatsApp en modo fake
+                $this->whatsAppService->sendMicrosoftAccountSuccessNotification(
+                    $validated,
+                    $fakePassword
+                );
+
                 $microsoftIntegrationResult = [
                     'success' => true,
                     'error' => null,
@@ -229,6 +250,12 @@ class MicrosoftAccountController extends Controller
                     // Enviar credenciales por email
                     if (!empty($customerResult['password'])) {
                         $this->emailService->sendCredentials(
+                            $customerData,
+                            $customerResult['password']
+                        );
+
+                        // Enviar notificación por WhatsApp
+                        $this->whatsAppService->sendMicrosoftAccountSuccessNotification(
                             $customerData,
                             $customerResult['password']
                         );

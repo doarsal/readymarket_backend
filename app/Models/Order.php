@@ -116,6 +116,11 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function paymentResponse(): BelongsTo
+    {
+        return $this->belongsTo(PaymentResponse::class, 'id', 'order_id');
+    }
+
     public function orderItems(): HasMany
     {
         return $this->hasMany(OrderItem::class);

@@ -8,11 +8,23 @@ use App\Models\OrderItem;
 use App\Models\PaymentResponse;
 use App\Models\PaymentSession;
 use App\Models\Currency;
+use App\Services\PurchaseConfirmationEmailService;
+use App\Services\WhatsAppNotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class OrderService
 {
+    protected PurchaseConfirmationEmailService $purchaseEmailService;
+    protected WhatsAppNotificationService $whatsAppService;
+
+    public function __construct(
+        PurchaseConfirmationEmailService $purchaseEmailService,
+        WhatsAppNotificationService $whatsAppService
+    ) {
+        $this->purchaseEmailService = $purchaseEmailService;
+        $this->whatsAppService = $whatsAppService;
+    }
     /**
      * Crea una orden desde un carrito después de un pago exitoso
      */
@@ -76,6 +88,9 @@ class OrderService
                 'order_number' => $order->order_number,
                 'total_amount' => $order->total_amount
             ]);
+
+            // Enviar confirmaciones de compra después de crear la orden
+            $this->sendPurchaseConfirmations($order, $paymentResponse);
 
             return $order;
         });
@@ -211,5 +226,88 @@ class OrderService
             'order_number' => $order->order_number,
             'reason' => $reason
         ]);
+    }
+
+    /**
+     * Envía confirmaciones de compra por email y WhatsApp
+     */
+    protected function sendPurchaseConfirmations(Order $order, PaymentResponse $paymentResponse): void
+    {
+        try {
+            // Cargar relaciones necesarias
+            $order->load([
+                'user',
+                'currency',
+                'items.product',
+                'billingInformation',
+                'microsoftAccount',
+                'paymentResponse'
+            ]);
+
+            // Preparar datos de la transacción para incluir en las confirmaciones
+            $paymentData = [
+                'reference' => $paymentResponse->transaction_reference,
+                'auth_code' => $paymentResponse->auth_code,
+                'amount' => $paymentResponse->amount,
+                'currency' => $order->currency->code ?? 'MXN',
+                'processed_at' => $paymentResponse->created_at->toISOString()
+            ];
+
+            // Obtener cuenta de Microsoft si existe
+            $microsoftAccount = $order->microsoftAccount;
+
+            Log::info('Enviando confirmaciones de compra', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_number,
+                'payment_reference' => $paymentData['reference'],
+                'customer_email' => $order->user->email,
+                'customer_phone' => $order->user->phone,
+                'has_microsoft_account' => $microsoftAccount ? true : false
+            ]);
+
+            // Enviar confirmaciones por email
+            try {
+                $emailResults = $this->purchaseEmailService->sendAllConfirmations($order, $microsoftAccount, $paymentData);
+                Log::info('Emails de confirmación enviados', [
+                    'order_id' => $order->id,
+                    'customer_sent' => $emailResults['customer'] ?? false,
+                    'admin_sent' => $emailResults['admin'] ?? false
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error enviando emails de confirmación', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            // Enviar confirmaciones por WhatsApp
+            try {
+                // Al cliente (si tiene teléfono)
+                if ($order->user->phone) {
+                    $this->whatsAppService->sendPurchaseConfirmationToCustomer($order, $microsoftAccount, $paymentData);
+                }
+
+                // A los administradores
+                $this->whatsAppService->sendPurchaseConfirmationToAdmins($order, $microsoftAccount, $paymentData);
+
+                Log::info('WhatsApp confirmaciones enviadas', [
+                    'order_id' => $order->id,
+                    'customer_phone' => $order->user->phone ? 'sent' : 'no_phone',
+                    'admin_sent' => 'sent'
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error enviando WhatsApp confirmaciones', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Error general enviando confirmaciones de compra', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
     }
 }

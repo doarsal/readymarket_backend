@@ -364,4 +364,10 @@ Route::prefix('v1')->group(function () {
         });
     });
 
+    // Test routes for purchase confirmations (for development/testing)
+    Route::prefix('test')->name('test.')->group(function () {
+        Route::post('purchase-confirmations', [\App\Http\Controllers\Api\TestPurchaseConfirmationController::class, 'testConfirmations'])->name('purchase.confirmations');
+        Route::get('test-order', [\App\Http\Controllers\Api\TestPurchaseConfirmationController::class, 'getTestOrder'])->name('order');
+    });
+
 }); // End v1 route group

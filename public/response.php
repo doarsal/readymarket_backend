@@ -114,9 +114,12 @@ function parseXmlResponse(string $xmlString): array {
             'time' => (string)($xml->CENTEROFPAYMENTS->time ?? ''),
             'date' => (string)($xml->CENTEROFPAYMENTS->date ?? ''),
             'voucher' => (string)($xml->CENTEROFPAYMENTS->voucher ?? ''),
+            'voucher_comercio' => (string)($xml->CENTEROFPAYMENTS->voucher_comercio ?? ''),
+            'voucher_cliente' => (string)($xml->CENTEROFPAYMENTS->voucher_cliente ?? ''),
             'amount' => (string)($xml->CENTEROFPAYMENTS->amount ?? $xml->amount ?? ''),
-            'cc_name' => (string)($xml->r3ds_cc_name ?? ''),
-            'cc_number' => (string)($xml->r3ds_cc_number ?? ''),
+            'cc_name' => (string)($xml->CENTEROFPAYMENTS->cc_name ?? $xml->r3ds_cc_name ?? ''),
+            'cc_number' => (string)($xml->CENTEROFPAYMENTS->cc_number ?? $xml->r3ds_cc_number ?? ''),
+            'cc_type' => (string)($xml->CENTEROFPAYMENTS->cc_type ?? ''),
             'branch' => (string)($xml->r3ds_idBranch ?? ''),
             'auth_bancaria' => (string)($xml->r3ds_autorizacion_bancaria ?? ''),
             'auth_full' => (string)($xml->r3ds_auth_full ?? ''),
@@ -279,7 +282,11 @@ try {
             'time' => $fakeData['time'],
             'date' => $fakeData['date'],
             'voucher' => $fakeData['voucher'],
-            'amount' => $fakeData['amount']
+            'amount' => $fakeData['amount'],
+            // Agregar datos de tarjeta simulados para modo fake
+            'cc_name' => 'USUARIO DE PRUEBA',
+            'cc_number' => '1234', // Últimos 4 dígitos simulados
+            'cc_type' => 'AMEX'
         ];
 
         $transactionStatus = [
