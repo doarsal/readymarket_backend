@@ -45,6 +45,11 @@ return [
         'no_certificado' => env('FACTURALO_NO_CERTIFICADO'),
     ],
 
+    'exchangerate_api' => [
+        'key' => env('EXCHANGERATE_API_KEY'),
+        'base_url' => 'https://v6.exchangerate-api.com/v6',
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

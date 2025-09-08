@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'secure.headers' => \App\Http\Middleware\ValidateSecureHeaders::class,
             'security.rate' => \App\Http\Middleware\SecurityRateLimiter::class,
             'super.admin' => \App\Http\Middleware\SuperAdminMiddleware::class,
+            'currency' => \App\Http\Middleware\CurrencyMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

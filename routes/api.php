@@ -75,14 +75,18 @@ Route::prefix('v1')->group(function () {
     Route::get('categories/menu', [CategoryController::class, 'menu']);
     Route::get('categories/{category}', [CategoryController::class, 'show']);
     Route::get('categories/{category}/products', [CategoryController::class, 'products']);
-    Route::get('products', [ProductController::class, 'index']);
-    Route::get('products/popular', [ProductController::class, 'popular']);
-    Route::get('products/featured', [ProductController::class, 'featured']);
-    Route::get('products/slide', [ProductController::class, 'slide']);
-    Route::get('products/search', [ProductController::class, 'search']);
-    Route::get('products/by-product-id/{productId}', [ProductController::class, 'showByProductId']);
-    Route::get('products/detail/{id}', [ProductController::class, 'showDetail']); // Nueva ruta para ID interno
-    Route::get('products/{id}', [ProductController::class, 'show']);
+
+    // Product routes with currency middleware
+    Route::middleware('currency')->group(function () {
+        Route::get('products', [ProductController::class, 'index']);
+        Route::get('products/popular', [ProductController::class, 'popular']);
+        Route::get('products/featured', [ProductController::class, 'featured']);
+        Route::get('products/slide', [ProductController::class, 'slide']);
+        Route::get('products/search', [ProductController::class, 'search']);
+        Route::get('products/by-product-id/{productId}', [ProductController::class, 'showByProductId']);
+        Route::get('products/detail/{id}', [ProductController::class, 'showDetail']); // Nueva ruta para ID interno
+        Route::get('products/{id}', [ProductController::class, 'show']);
+    });
 
     // Public activities endpoints
     Route::get('activities/active', [ActivityController::class, 'getActive']);

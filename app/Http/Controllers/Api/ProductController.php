@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Resources\ProductResource;
+use App\Http\Traits\HasCurrencyConversion;
 use App\Models\Product;
 use App\Models\Category;
 use Illuminate\Http\JsonResponse;
@@ -18,6 +19,7 @@ use Illuminate\Support\Facades\Cache;
  */
 class ProductController extends ApiController
 {
+    use HasCurrencyConversion;
     /**
      * @OA\Get(
      *     path="/api/v1/products",
@@ -193,6 +195,11 @@ class ProductController extends ApiController
      */
     private function getProductsData($request, $perPage, $page, $sortBy, $sortOrder): array
     {
+        // Get currency conversion context
+        $storeId = $this->getStoreId($request);
+        $targetCurrency = null; // Always use store default
+        $currencyService = $this->getCurrencyService();
+
         // Consulta principal con GROUP BY correcto
         $query = Product::select([
             'products.SkuId',
@@ -206,7 +213,9 @@ class ProductController extends ApiController
             \DB::raw('MIN(products.Market) as Market'),
             \DB::raw('MIN(products.Segment) as Segment'),
             \DB::raw('MIN(products.category_id) as category_id'),
-            \DB::raw('MIN(products.UnitPrice) as UnitPrice')
+            \DB::raw('MIN(products.UnitPrice) as UnitPrice'),
+            \DB::raw('MIN(products.Currency) as Currency'),
+            \DB::raw('MIN(products.ERPPrice) as ERPPrice')
         ]);
 
         // Filtros básicos
@@ -262,6 +271,9 @@ class ProductController extends ApiController
         $productsWithVariants = [];
 
         foreach ($paginatedProducts->items() as $product) {
+            // Get main product price info
+            $mainPriceInfo = $currencyService->getProductPrice($product, $storeId, $targetCurrency);
+
             // Obtener todas las variantes para esta combinación SkuId + Id
             $variants = Product::select([
                 'idproduct',
@@ -269,7 +281,8 @@ class ProductController extends ApiController
                 'UnitPrice',
                 'TermDuration',
                 'SkuId',
-                'ERPPrice'
+                'ERPPrice',
+                'Currency'
             ])
             ->where('SkuId', $product->SkuId)
             ->where('Id', $product->Id)
@@ -296,14 +309,40 @@ class ProductController extends ApiController
                 'category' => [
                     'id' => $product->category_id,
                 ],
-                'variants' => $variants->map(function($variant) {
+                // Enhanced price information
+                'price' => [
+                    'amount' => $mainPriceInfo['amount'],
+                    'formatted' => $mainPriceInfo['formatted'],
+                    'currency_code' => $mainPriceInfo['currency_code'],
+                    'currency_symbol' => $mainPriceInfo['currency_symbol'],
+                    'currency_name' => $mainPriceInfo['currency_name'],
+                    'original_amount' => $mainPriceInfo['original_amount'],
+                    'original_currency' => $mainPriceInfo['original_currency'],
+                    'exchange_rate' => $mainPriceInfo['exchange_rate'],
+                    'price_source' => $mainPriceInfo['price_source'],
+                ],
+                'variants' => $variants->map(function($variant) use ($currencyService, $storeId, $targetCurrency) {
+                    $variantPriceInfo = $currencyService->getProductPrice($variant, $storeId, $targetCurrency);
+
                     return [
                         'id' => $variant->idproduct,
                         'billing_plan' => $variant->BillingPlan,
-                        'unit_price' => $variant->UnitPrice,
-                        'erp_price' => $variant->ERPPrice,
                         'term_duration' => $variant->TermDuration,
                         'sku_id' => $variant->SkuId,
+                        // Original price data for compatibility
+                        'unit_price' => $variant->UnitPrice,
+                        'erp_price' => $variant->ERPPrice,
+                        'currency' => $variant->Currency,
+                        // Enhanced price information
+                        'price' => [
+                            'amount' => $variantPriceInfo['amount'],
+                            'formatted' => $variantPriceInfo['formatted'],
+                            'currency_code' => $variantPriceInfo['currency_code'],
+                            'currency_symbol' => $variantPriceInfo['currency_symbol'],
+                            'original_amount' => $variantPriceInfo['original_amount'],
+                            'original_currency' => $variantPriceInfo['original_currency'],
+                            'exchange_rate' => $variantPriceInfo['exchange_rate'],
+                        ],
                     ];
                 })->toArray()
             ];
@@ -319,6 +358,10 @@ class ProductController extends ApiController
                 'total_pages' => $paginatedProducts->lastPage(),
                 'from' => $paginatedProducts->firstItem(),
                 'to' => $paginatedProducts->lastItem(),
+            ],
+            'currency_info' => [
+                'store_id' => $storeId,
+                'default_currency' => $currencyService->getStoreCurrency($storeId)?->code,
             ],
             'message' => 'Products retrieved successfully'
         ];
@@ -378,6 +421,11 @@ class ProductController extends ApiController
         try {
             $product = Product::where('idproduct', $id)->firstOrFail();
 
+            // Get currency conversion
+            $storeId = $this->getStoreId();
+            $targetCurrency = null; // Always use store default
+            $priceInfo = $this->convertProductPrice($product);
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -388,9 +436,25 @@ class ProductController extends ApiController
                     'sku_id' => $product->SkuId,
                     'publisher' => $product->Publisher,
                     'logo' => $product->prod_icon,
+                    // Enhanced pricing
                     'pricing' => [
+                        // New enhanced price information
+                        'amount' => $priceInfo['amount'],
+                        'formatted' => $priceInfo['formatted'],
+                        'currency_code' => $priceInfo['currency_code'],
+                        'currency_symbol' => $priceInfo['currency_symbol'],
+                        'currency_name' => $priceInfo['currency_name'],
+
+                        // Original for compatibility
                         'unit_price' => $product->UnitPrice,
                         'currency' => $product->Currency,
+                        'erp_price' => $product->ERPPrice,
+
+                        // Conversion details
+                        'original_amount' => $priceInfo['original_amount'],
+                        'original_currency' => $priceInfo['original_currency'],
+                        'exchange_rate' => $priceInfo['exchange_rate'],
+                        'price_source' => $priceInfo['price_source'],
                     ],
                     'details' => [
                         'term_duration' => $product->TermDuration,
@@ -401,6 +465,9 @@ class ProductController extends ApiController
                     'category' => [
                         'id' => $product->category_id,
                     ],
+                ],
+                'currency_info' => [
+                    'store_id' => $storeId,
                 ],
                 'message' => 'Product retrieved successfully'
             ]);
@@ -472,21 +539,41 @@ class ProductController extends ApiController
             // Crear array de variantes únicas por BillingPlan
             $variants = [];
             $seenBillingPlans = [];
+            $storeId = $this->getStoreId();
+            $targetCurrency = null; // Always use store default
+            $currencyService = $this->getCurrencyService();
 
             foreach ($products as $product) {
                 $billingPlan = $product->BillingPlan;
                 if (!in_array($billingPlan, $seenBillingPlans)) {
+                    $variantPriceInfo = $currencyService->getProductPrice($product, $storeId, $targetCurrency);
+
                     $variants[] = [
                         'id' => $product->idproduct,
                         'billing_plan' => $product->BillingPlan,
-                        'unit_price' => $product->UnitPrice,
-                        'erp_price' => $product->ERPPrice,
                         'term_duration' => $product->TermDuration,
                         'sku_id' => $product->SkuId,
+                        // Original pricing for compatibility
+                        'unit_price' => $product->UnitPrice,
+                        'erp_price' => $product->ERPPrice,
+                        'currency' => $product->Currency,
+                        // Enhanced pricing
+                        'price' => [
+                            'amount' => $variantPriceInfo['amount'],
+                            'formatted' => $variantPriceInfo['formatted'],
+                            'currency_code' => $variantPriceInfo['currency_code'],
+                            'currency_symbol' => $variantPriceInfo['currency_symbol'],
+                            'original_amount' => $variantPriceInfo['original_amount'],
+                            'original_currency' => $variantPriceInfo['original_currency'],
+                            'exchange_rate' => $variantPriceInfo['exchange_rate'],
+                        ],
                     ];
                     $seenBillingPlans[] = $billingPlan;
                 }
             }
+
+            // Get main product price info
+            $mainPriceInfo = $currencyService->getProductPrice($mainProduct, $storeId, $targetCurrency);
 
             // Obtener información completa de la categoría
             $category = null;
@@ -519,6 +606,25 @@ class ProductController extends ApiController
                         'screenshot3' => $mainProduct->prod_screenshot3,
                         'screenshot4' => $mainProduct->prod_screenshot4,
                     ],
+                    // Enhanced pricing for main product
+                    'pricing' => [
+                        'amount' => $mainPriceInfo['amount'],
+                        'formatted' => $mainPriceInfo['formatted'],
+                        'currency_code' => $mainPriceInfo['currency_code'],
+                        'currency_symbol' => $mainPriceInfo['currency_symbol'],
+                        'currency_name' => $mainPriceInfo['currency_name'],
+
+                        // Original for compatibility
+                        'unit_price' => $mainProduct->UnitPrice,
+                        'currency' => $mainProduct->Currency,
+                        'erp_price' => $mainProduct->ERPPrice,
+
+                        // Conversion details
+                        'original_amount' => $mainPriceInfo['original_amount'],
+                        'original_currency' => $mainPriceInfo['original_currency'],
+                        'exchange_rate' => $mainPriceInfo['exchange_rate'],
+                        'price_source' => $mainPriceInfo['price_source'],
+                    ],
                     'details' => [
                         'term_duration' => $mainProduct->TermDuration,
                         'billing_plan' => $mainProduct->BillingPlan,
@@ -527,6 +633,9 @@ class ProductController extends ApiController
                     ],
                     'category' => $category,
                     'variants' => $variants,
+                ],
+                'currency_info' => [
+                    'store_id' => $storeId,
                 ],
                 'message' => 'Product with variants retrieved successfully'
             ]);
