@@ -49,7 +49,7 @@ class OrderController extends Controller
         $user = Auth::user();
 
         $query = Order::where('user_id', $user->id)
-                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'orderItems'])
                      ->orderBy('created_at', 'desc');
 
         if ($request->has('status')) {
@@ -476,18 +476,35 @@ class OrderController extends Controller
             if ($result['success']) {
                 return response()->json([
                     'success' => true,
-                    'message' => 'Orden procesada exitosamente en Microsoft Partner Center',
-                    'data' => $result
+                    'message' => $result['message'],
+                    'data' => [
+                        'order_id' => $result['order_id'],
+                        'order_status' => $result['order_status'],
+                        'fulfillment_status' => $result['fulfillment_status'],
+                        'total_products' => $result['total_products'],
+                        'successful_products' => $result['successful_products'],
+                        'failed_products' => $result['failed_products'],
+                        'product_details' => $result['product_details'] ?? [],
+                        'cart_id' => $result['cart_id'] ?? null,
+                        'subscriptions_count' => $result['subscriptions_count'] ?? 0
+                    ]
                 ]);
             } else {
                 // El servicio devolvió error pero no lanzó excepción
+                // Usar 200 para que el frontend pueda procesar los detalles del error
                 return response()->json([
                     'success' => false,
                     'message' => $result['message'] ?? 'Error al procesar la orden en Microsoft Partner Center',
-                    'microsoft_details' => $result['microsoft_details'] ?? [],
-                    'error_type' => $result['error_type'] ?? 'unknown',
-                    'order_id' => $result['order_id'] ?? null
-                ], 422); // 422 Unprocessable Entity para errores de negocio
+                    'data' => [
+                        'order_id' => $result['order_id'],
+                        'order_status' => $result['order_status'] ?? 'processing',
+                        'fulfillment_status' => $result['fulfillment_status'] ?? 'pending',
+                        'total_products' => $result['total_products'] ?? 0,
+                        'successful_products' => $result['successful_products'] ?? 0,
+                        'failed_products' => $result['failed_products'] ?? 0,
+                        'product_details' => $result['product_details'] ?? []
+                    ]
+                ], 200); // 200 para que frontend pueda procesar los detalles
             }
 
         } catch (\Exception $e) {

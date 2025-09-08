@@ -118,6 +118,12 @@ class OrderProvisioningController extends Controller
                     'message' => $result['message'],
                     'data' => [
                         'order_id' => $result['order_id'],
+                        'order_status' => $result['order_status'],
+                        'fulfillment_status' => $result['fulfillment_status'],
+                        'total_products' => $result['total_products'],
+                        'successful_products' => $result['successful_products'],
+                        'failed_products' => $result['failed_products'],
+                        'product_details' => $result['product_details'] ?? [],
                         'cart_id' => $result['cart_id'] ?? null,
                         'subscriptions_count' => $result['subscriptions_count'] ?? 0
                     ]
@@ -129,7 +135,13 @@ class OrderProvisioningController extends Controller
                     'success' => false,
                     'message' => $result['message'],
                     'data' => [
-                        'order_id' => $result['order_id']
+                        'order_id' => $result['order_id'],
+                        'order_status' => $result['order_status'] ?? 'processing',
+                        'fulfillment_status' => $result['fulfillment_status'] ?? 'pending',
+                        'total_products' => $result['total_products'] ?? 0,
+                        'successful_products' => $result['successful_products'] ?? 0,
+                        'failed_products' => $result['failed_products'] ?? 0,
+                        'product_details' => $result['product_details'] ?? []
                     ]
                 ], 422);
             }

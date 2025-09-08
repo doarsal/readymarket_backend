@@ -285,6 +285,15 @@ class PartnerCenterProvisioningService
                 // Checkout single item cart
                 $checkoutResponse = $this->checkoutMicrosoftCart($microsoftCustomerId, $cartResponse['id'], $token);
 
+                // Check for order errors before processing
+                if (isset($checkoutResponse['orderErrors']) && !empty($checkoutResponse['orderErrors'])) {
+                    $orderError = $checkoutResponse['orderErrors'][0];
+                    $errorCode = $orderError['code'] ?? 'unknown';
+                    $errorDescription = $orderError['description'] ?? 'Unknown error';
+
+                    throw new Exception("Microsoft Partner Center Error {$errorCode}: {$errorDescription}");
+                }
+
                 // Save subscription for this specific item
                 $this->saveSingleSubscription($order, $checkoutResponse, $cartItem);
 
@@ -379,8 +388,24 @@ class PartnerCenterProvisioningService
      */
     private function saveSingleSubscription(Order $order, array $checkoutResponse, $cartItem): void
     {
+        // Log complete checkout response for debugging
+        Log::warning('Checkout response for debugging', [
+            'order_id' => $order->id,
+            'product_title' => $cartItem->product->title,
+            'checkout_response' => $checkoutResponse
+        ]);
+
         if (!isset($checkoutResponse['orders'][0]['lineItems'][0])) {
-            throw new Exception('No line items found in checkout response');
+            // Enhanced error message with response details
+            $ordersCount = isset($checkoutResponse['orders']) ? count($checkoutResponse['orders']) : 0;
+            $lineItemsCount = isset($checkoutResponse['orders'][0]['lineItems']) ? count($checkoutResponse['orders'][0]['lineItems']) : 0;
+
+            throw new Exception(sprintf(
+                'No line items found in checkout response. Orders: %d, LineItems: %d. Response: %s',
+                $ordersCount,
+                $lineItemsCount,
+                json_encode($checkoutResponse)
+            ));
         }
 
         $item = $checkoutResponse['orders'][0]['lineItems'][0];
@@ -639,6 +664,15 @@ class PartnerCenterProvisioningService
                     'sku_id' => $skuId,
                     'created_by' => 'Marketplace'
                 ]);
+
+                // UPDATE ORDER_ITEM STATUS TO FULFILLED
+                $orderItem = $order->orderItems()->where('product_id', $cartItem->product_id)->first();
+                if ($orderItem) {
+                    $orderItem->update([
+                        'fulfillment_status' => 'fulfilled',
+                        'fulfilled_at' => now()
+                    ]);
+                }
             }
 
         } catch (Exception $e) {
@@ -789,7 +823,7 @@ class PartnerCenterProvisioningService
     }
 
     /**
-     * Format product details for response
+     * Format product details for response with complete information for frontend
      */
     private function formatProductDetails(array $results): array
     {
@@ -801,16 +835,45 @@ class PartnerCenterProvisioningService
                 'product_title' => $result['product_title'],
                 'quantity' => $result['quantity'],
                 'status' => $result['success'] ? 'success' : 'failed',
+                'status_emoji' => $result['success'] ? '✅' : '❌',
                 'processed_at' => $result['processed_at']
             ];
 
             if ($result['success']) {
                 $detail['subscription_id'] = $result['subscription_id'];
                 $detail['microsoft_cart_id'] = $result['microsoft_cart_id'];
+                $detail['display_message'] = "✅ {$result['product_title']} (x{$result['quantity']}) - Procesado exitosamente";
             } else {
                 $detail['error_message'] = $result['error_message'];
+                $detail['display_message'] = "❌ {$result['product_title']} (x{$result['quantity']})";
+
+                // Add detailed Microsoft error information if available
                 if (!empty($result['microsoft_details'])) {
-                    $detail['microsoft_error_details'] = $result['microsoft_details'];
+                    $msDetails = $result['microsoft_details'];
+                    $detail['microsoft_error_details'] = $msDetails;
+
+                    // Create user-friendly error details
+                    $detail['error_details'] = [
+                        'main_error' => $result['error_message'],
+                        'http_status' => $msDetails['http_status'] ?? null,
+                        'error_code' => $msDetails['error_code'] ?? null,
+                        'description' => $msDetails['description'] ?? null,
+                        'correlation_id' => $msDetails['correlation_id'] ?? null
+                    ];
+
+                    // Create formatted message for display
+                    $errorLines = ["💡 Error: {$result['error_message']}"];
+                    if (!empty($msDetails['error_code'])) {
+                        $errorLines[] = "📄 Código: {$msDetails['error_code']}";
+                    }
+                    if (!empty($msDetails['http_status'])) {
+                        $errorLines[] = "🌐 HTTP: {$msDetails['http_status']}";
+                    }
+                    if (!empty($msDetails['description'])) {
+                        $errorLines[] = "📝 Descripción: {$msDetails['description']}";
+                    }
+
+                    $detail['formatted_error'] = implode("\n   ", $errorLines);
                 }
             }
 
@@ -821,7 +884,8 @@ class PartnerCenterProvisioningService
     }
 
     /**
-     * Get cart items that need processing (not already fulfilled)
+     * Get cart items that need processing
+     * ALWAYS allows reprocessing failed products, only skips fulfilled ones
      */
     private function getCartItemsThatNeedProcessing(Order $order): \Illuminate\Database\Eloquent\Collection
     {
@@ -833,16 +897,16 @@ class PartnerCenterProvisioningService
             return $allCartItems;
         }
 
-        // Get cart items that correspond to order items that need processing
-        $orderItemsNeedingProcessing = $order->orderItems()
-            ->whereIn('fulfillment_status', ['failed', 'processing', 'pending'])
+        // Get cart items that correspond to ONLY fulfilled order items (to exclude them)
+        $fulfilledOrderItems = $order->orderItems()
+            ->where('fulfillment_status', 'fulfilled')
             ->get();
 
-        // Get cart item IDs that need processing
-        $cartItemIdsToProcess = $orderItemsNeedingProcessing->pluck('cart_item_id')->filter();
+        // Get cart item IDs that are already fulfilled (we'll exclude these)
+        $fulfilledCartItemIds = $fulfilledOrderItems->pluck('cart_item_id')->filter();
 
-        // Return only cart items that need processing
-        return $allCartItems->whereIn('id', $cartItemIdsToProcess);
+        // Return cart items that are NOT fulfilled (this includes failed, processing, pending, and new items)
+        return $allCartItems->whereNotIn('id', $fulfilledCartItemIds);
     }
 
     /**

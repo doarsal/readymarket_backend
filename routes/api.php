@@ -329,6 +329,7 @@ Route::prefix('v1')->group(function () {
             Route::get('{id}', [OrderController::class, 'show']);
             Route::put('{id}/cancel', [OrderController::class, 'cancel']);
             Route::post('{id}/process-microsoft', [OrderController::class, 'processMicrosoft']);
+            Route::post('{id}/provision', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'processOrder']);
         });
 
         // Order Provisioning endpoints (Partner Center integration)
