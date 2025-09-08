@@ -57,6 +57,43 @@ class WhatsAppNotificationService
     }
 
     /**
+     * Send WhatsApp message for Microsoft Partner Center errors with detailed product information
+     */
+    public function sendMicrosoftErrorNotificationWithProducts($order, string $errorMessage, array $errorDetails = [], array $productResults = []): void
+    {
+        try {
+            $phoneNumbers = env('WHATSAPP_NOTIFICATION_NUMBER');
+
+            if (!$phoneNumbers || !$this->graphToken || !$this->phoneId) {
+                Log::warning('WhatsApp configuration incomplete');
+                return;
+            }
+
+            // Convert comma-separated numbers to array
+            $phoneList = array_map('trim', explode(',', $phoneNumbers));
+
+            // Format message for WhatsApp with product details
+            $message = $this->formatMicrosoftErrorMessageWithProducts($order, $errorMessage, $errorDetails, $productResults);
+
+            // Send to each phone number
+            foreach ($phoneList as $phoneNumber) {
+                if (!empty($phoneNumber)) {
+                    try {
+                        $this->sendMessage($phoneNumber, $message);
+                        Log::info("Detailed WhatsApp notification sent to {$phoneNumber} for Microsoft error - Order: {$order->order_number}");
+                    } catch (Exception $sendException) {
+                        Log::error("Failed to send WhatsApp to {$phoneNumber}: " . $sendException->getMessage());
+                        // Continue with next number even if one fails
+                    }
+                }
+            }
+
+        } catch (Exception $e) {
+            Log::error("Failed to send detailed WhatsApp notification: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Send a WhatsApp message using template
      */
     private function sendMessage(string $phoneNumber, string $message): void
@@ -511,5 +548,73 @@ class WhatsAppNotificationService
             Log::error("WhatsApp test failed: " . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * Format Microsoft error message with detailed product information
+     */
+    private function formatMicrosoftErrorMessageWithProducts($order, string $errorMessage, array $errorDetails, array $productResults): string
+    {
+        $message = "🚨 *NO SE PROCESO PEDIDO EN READYMARKET* 🚨\n\n";
+
+        $message .= "📋 *ORDEN:* {$order->order_number}\n";
+        $message .= "💰 *TOTAL:* $" . number_format($order->total_amount, 2) . "\n";
+
+        if ($order->user) {
+            $message .= "👤 *CLIENTE:* {$order->user->name}\n";
+            $message .= "📧 *EMAIL:* {$order->user->email}\n";
+            if ($order->user->phone) {
+                $message .= "📞 *TELÉFONO:* {$order->user->phone}\n";
+            }
+        }
+
+        if ($order->microsoftAccount) {
+            $message .= "🔑 *Microsoft ID:* {$order->microsoftAccount->microsoft_id}\n";
+            $message .= "🌐 *DOMINIO:* {$order->microsoftAccount->domain_concatenated}\n";
+        }
+
+        $message .= "\n📦 *PRODUCTOS Y ERRORES:*\n";
+
+        if (!empty($productResults)) {
+            foreach ($productResults as $index => $result) {
+                $status = $result['success'] ? '✅' : '❌';
+                $message .= ($index + 1) . ". {$status} {$result['product_title']} (x{$result['quantity']})\n";
+
+                if (!$result['success'] && !empty($result['error_message'])) {
+                    $message .= "   💡 Error: {$result['error_message']}\n";
+                }
+
+                if (!empty($result['microsoft_details'])) {
+                    $details = $result['microsoft_details'];
+                    if (isset($details['error_code'])) {
+                        $message .= "   📄 Código: {$details['error_code']}\n";
+                    }
+                    if (isset($details['http_status'])) {
+                        $message .= "   🌐 HTTP: {$details['http_status']}\n";
+                    }
+                }
+                $message .= "\n";
+            }
+        } else {
+            // Fallback to cart items if no detailed results
+            if ($order->cartItems && $order->cartItems->count() > 0) {
+                foreach ($order->cartItems as $index => $item) {
+                    $productName = $item->product->ProductTitle ?? $item->product->SkuTitle ?? 'Producto no disponible';
+                    $message .= ($index + 1) . ". ❌ {$productName} (x{$item->quantity})\n";
+                }
+            }
+        }
+
+        $message .= "\n📊 *RESUMEN:*\n";
+        if (isset($errorDetails['Total Products'])) {
+            $message .= "Total: {$errorDetails['Total Products']}\n";
+            $message .= "✅ Exitosos: {$errorDetails['Successful Products']}\n";
+            $message .= "❌ Fallidos: {$errorDetails['Failed Products']}\n";
+        }
+
+        $message .= "\n⏰ *Fecha:* " . now()->format('d/m/Y H:i:s');
+        $message .= "\n\n🔧 *Acción requerida:* Revisar productos fallidos en el sistema";
+
+        return $message;
     }
 }

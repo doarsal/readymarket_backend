@@ -5,11 +5,13 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\MicrosoftAccount;
 use App\Models\Subscription;
 use App\Services\MicrosoftErrorNotificationService;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Exception;
 
 class PartnerCenterProvisioningService
@@ -69,39 +71,66 @@ class PartnerCenterProvisioningService
             // Get Microsoft access token
             $token = $this->getMicrosoftToken();
 
-            // Prepare cart items for Microsoft Partner Center
-            $lineItems = $this->prepareLineItems($cartItems);
+            // Process each product individually for resilient provisioning
+            $provisioningResults = $this->processProductsIndividually($order, $cartItems, $microsoftCustomerId, $token);
 
-            // Create cart in Microsoft Partner Center
-            $cartResponse = $this->createMicrosoftCart($microsoftCustomerId, $lineItems, $token);
+            // Calculate overall success rate
+            $totalProducts = $cartItems->count();
+            $successfulProducts = collect($provisioningResults)->where('success', true)->count();
 
-            // Process checkout
-            $checkoutResponse = $this->checkoutMicrosoftCart($microsoftCustomerId, $cartResponse['id'], $token);
-
-            // Handle Azure spending budget if needed
-            $azureSpendingAmount = $this->calculateAzureSpending($cartItems);
+            // Set Azure spending budget if applicable (only for successful products)
+            $successfulCartItems = $cartItems->whereIn('id',
+                collect($provisioningResults)->where('success', true)->pluck('cart_item_id')
+            );
+            $azureSpendingAmount = $this->calculateAzureSpending($successfulCartItems);
             if ($azureSpendingAmount > 0) {
                 $this->setAzureSpendingBudget($microsoftCustomerId, $azureSpendingAmount, $token);
             }
 
-            // Save subscription data
-            $this->saveSubscriptions($order, $checkoutResponse, $cartItems);
+            // Send notification if there are failed products
+            if ($successfulProducts < $totalProducts) {
+                $this->sendProductFailureNotification($order, $provisioningResults);
+            }
 
-            // Update order status to completed
-            $order->update(['status' => 'completed']);
+            // Determine final order status based on results
+            if ($successfulProducts === $totalProducts) {
+                // All products successful - mark as completed
+                $order->update([
+                    'status' => 'completed',
+                    'fulfillment_status' => 'fulfilled'
+                ]);
+            } elseif ($successfulProducts > 0) {
+                // Some products failed - keep as processing for manual review
+                $order->update([
+                    'status' => 'processing',
+                    'fulfillment_status' => 'partially_fulfilled'
+                ]);
+            } else {
+                // All products failed - mark as processing with failed fulfillment
+                $order->update([
+                    'status' => 'processing',
+                    'fulfillment_status' => 'failed'
+                ]);
+            }
 
             return [
-                'success' => true,
-                'message' => 'Products provisioned successfully in Partner Center',
+                'success' => $successfulProducts === $totalProducts,
+                'message' => $this->generateDetailedMessage($successfulProducts, $totalProducts, $provisioningResults),
                 'order_id' => $orderId,
-                'cart_id' => $cartResponse['id'],
-                'subscriptions_count' => count($checkoutResponse['orders'][0]['lineItems'] ?? [])
+                'order_status' => $order->fresh()->status,
+                'fulfillment_status' => $order->fresh()->fulfillment_status,
+                'total_products' => $totalProducts,
+                'successful_products' => $successfulProducts,
+                'failed_products' => $totalProducts - $successfulProducts,
+                'product_details' => $this->formatProductDetails($provisioningResults),
+                'provisioning_results' => $provisioningResults
             ];
 
         } catch (Exception $e) {
-            // Send error notification email if not in fake mode
-            if (!config('services.microsoft.fake_mode', false)) {
-                $this->sendErrorNotification($order ?? null, $orderId, $e->getMessage());
+            // Only send error notification if we haven't processed products individually
+            // (if processing failed before individual product processing started)
+            if (!config('services.microsoft.fake_mode', false) && !isset($provisioningResults)) {
+                $this->sendGeneralErrorNotification($order ?? null, $orderId, $e->getMessage());
             }
 
             // Construir mensaje de error detallado
@@ -180,6 +209,161 @@ class PartnerCenterProvisioningService
         } catch (Exception $e) {
             throw new Exception('Failed to authenticate with Microsoft Partner Center: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Process products individually for resilient provisioning
+     */
+    private function processProductsIndividually(Order $order, $cartItems, string $microsoftCustomerId, string $token): array
+    {
+        $results = [];
+
+        foreach ($cartItems as $cartItem) {
+            $result = [
+                'cart_item_id' => $cartItem->id,
+                'product_id' => $cartItem->product_id,
+                'sku_id' => $cartItem->product->SkuId ?? null,
+                'product_title' => $cartItem->product->ProductTitle ?? 'Unknown Product',
+                'quantity' => $cartItem->quantity,
+                'success' => false,
+                'error_message' => null,
+                'microsoft_details' => [],
+                'subscription_id' => null,
+                'microsoft_cart_id' => null,
+                'processed_at' => now()
+            ];
+
+            try {
+                // Mark item as processing
+                $this->updateOrderItemStatus($order, $cartItem, 'processing');
+
+                // Prepare single line item
+                $lineItem = $this->prepareSingleLineItem($cartItem);
+
+                // Create cart with single item
+                $cartResponse = $this->createMicrosoftCart($microsoftCustomerId, [$lineItem], $token);
+
+                // Checkout single item cart
+                $checkoutResponse = $this->checkoutMicrosoftCart($microsoftCustomerId, $cartResponse['id'], $token);
+
+                // Save subscription for this specific item
+                $this->saveSingleSubscription($order, $checkoutResponse, $cartItem);
+
+                // Mark as successful
+                $result['success'] = true;
+                $result['subscription_id'] = $checkoutResponse['orders'][0]['lineItems'][0]['subscriptionId'] ?? null;
+                $result['microsoft_cart_id'] = $cartResponse['id'];
+
+                // Mark item as fulfilled
+                $this->updateOrderItemStatus($order, $cartItem, 'fulfilled');
+
+            } catch (Exception $e) {
+                // Capture error details
+                $result['error_message'] = $e->getMessage();
+                $result['microsoft_details'] = $this->microsoftErrorDetails ?? [];
+
+                // Mark item as failed
+                $this->updateOrderItemStatus($order, $cartItem, 'failed', $e->getMessage());
+
+                // Reset error details for next iteration
+                $this->microsoftErrorDetails = [];
+            }
+
+            $results[] = $result;
+        }
+
+        return $results;
+    }
+
+    /**
+     * Prepare single line item for Microsoft Partner Center
+     */
+    private function prepareSingleLineItem($cartItem): array
+    {
+        $product = $cartItem->product;
+
+        if (!$product || !$product->hasValidCatalogItemId()) {
+            throw new Exception("Invalid product data for cart item {$cartItem->id}");
+        }
+
+        $catalogItemId = $product->catalog_item_id;
+        $quantity = $cartItem->quantity;
+        $billingCycle = $product->BillingPlan ?? 'Monthly';
+        $termDuration = $product->TermDuration;
+
+        // Build line item
+        $lineItem = [
+            'id' => 0,
+            'catalogItemId' => $catalogItemId,
+            'quantity' => $quantity,
+            'billingCycle' => $billingCycle
+        ];
+
+        // Add term duration if it exists and is not a prepaid Azure credit
+        if (!empty($termDuration) && !($termDuration === "P1M" && strpos($product->ProductTitle, 'Prepago') !== false)) {
+            $lineItem['termDuration'] = $termDuration;
+        }
+
+        return $lineItem;
+    }
+
+    /**
+     * Update order item status in database
+     */
+    private function updateOrderItemStatus(Order $order, $cartItem, string $status, string $errorMessage = null): void
+    {
+        // Find the corresponding order item
+        $orderItem = $order->orderItems()->where('product_id', $cartItem->product_id)
+                                       ->where('sku_id', $cartItem->product->SkuId ?? $cartItem->sku_id)
+                                       ->first();
+
+        if ($orderItem) {
+            $updateData = [
+                'fulfillment_status' => $status,
+                'updated_at' => now()
+            ];
+
+            if ($status === 'processing') {
+                $updateData['processing_started_at'] = now();
+            } elseif ($status === 'fulfilled') {
+                $updateData['fulfilled_at'] = now();
+            } elseif ($status === 'failed') {
+                $updateData['fulfillment_error'] = $errorMessage;
+            }
+
+            $orderItem->update($updateData);
+        }
+    }
+
+    /**
+     * Save subscription for a single item
+     */
+    private function saveSingleSubscription(Order $order, array $checkoutResponse, $cartItem): void
+    {
+        if (!isset($checkoutResponse['orders'][0]['lineItems'][0])) {
+            throw new Exception('No line items found in checkout response');
+        }
+
+        $item = $checkoutResponse['orders'][0]['lineItems'][0];
+        $product = $cartItem->product;
+
+        Subscription::create([
+            'order_id' => $order->id,
+            'subscription_identifier' => $order->order_number,
+            'offer_id' => $item['offerId'] ?? null,
+            'subscription_id' => $item['subscriptionId'] ?? null,
+            'term_duration' => $item['termDuration'] ?? null,
+            'transaction_type' => $item['transactionType'] ?? null,
+            'friendly_name' => $item['friendlyName'] ?? null,
+            'quantity' => $item['quantity'] ?? 1,
+            'pricing' => $item['pricing']['listPrice'] ?? 0,
+            'status' => 1,
+            'microsoft_account_id' => $order->microsoft_account_id,
+            'product_id' => $cartItem->product_id,
+            'sku_id' => $product ? $product->SkuId : null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     /**
@@ -490,9 +674,9 @@ class PartnerCenterProvisioningService
     }
 
     /**
-     * Send error notification email when Microsoft Partner Center fails
+     * Send error notification email when Microsoft Partner Center fails (general errors)
      */
-    private function sendErrorNotification($order, int $orderId, string $errorMessage): void
+    private function sendGeneralErrorNotification($order, int $orderId, string $errorMessage): void
     {
         try {
             // If order is not loaded, try to load it
@@ -510,13 +694,112 @@ class PartnerCenterProvisioningService
                 'Order ID' => $orderId,
                 'Order Number' => $order->order_number,
                 'Order Status' => $order->status,
-                'Error Time' => now()->format('Y-m-d H:i:s')
+                'Error Time' => now()->format('Y-m-d H:i:s'),
+                'Error Type' => 'General Processing Error'
             ];
 
+            // Use the old notification method for general errors (before product processing)
             $notificationService->sendMicrosoftErrorNotification($order, $errorMessage, $errorDetails, $this->microsoftErrorDetails);
 
         } catch (Exception $e) {
             // Silent fail for notification errors
         }
+    }
+
+    /**
+     * Generate detailed message based on provisioning results
+     */
+    private function generateDetailedMessage(int $successful, int $total, array $results): string
+    {
+        if ($successful === $total) {
+            return "✅ Todos los productos ({$total}) se aprovisionaron correctamente";
+        } elseif ($successful === 0) {
+            return "❌ Ningún producto se pudo aprovisionar ({$total} productos fallaron)";
+        } else {
+            return "⚠️ Aprovisionamiento parcial: {$successful}/{$total} productos exitosos, " . ($total - $successful) . " fallaron";
+        }
+    }
+
+    /**
+     * Format product details for response
+     */
+    private function formatProductDetails(array $results): array
+    {
+        $formatted = [];
+
+        foreach ($results as $result) {
+            $detail = [
+                'product_id' => $result['product_id'],
+                'product_title' => $result['product_title'],
+                'quantity' => $result['quantity'],
+                'status' => $result['success'] ? 'success' : 'failed',
+                'processed_at' => $result['processed_at']
+            ];
+
+            if ($result['success']) {
+                $detail['subscription_id'] = $result['subscription_id'];
+                $detail['microsoft_cart_id'] = $result['microsoft_cart_id'];
+            } else {
+                $detail['error_message'] = $result['error_message'];
+                if (!empty($result['microsoft_details'])) {
+                    $detail['microsoft_error_details'] = $result['microsoft_details'];
+                }
+            }
+
+            $formatted[] = $detail;
+        }
+
+        return $formatted;
+    }
+
+    /**
+     * Send notification when products fail during individual processing
+     */
+    private function sendProductFailureNotification(Order $order, array $provisioningResults): void
+    {
+        try {
+            $notificationService = app(MicrosoftErrorNotificationService::class);
+
+            // Get failed products details
+            $failedProducts = collect($provisioningResults)->where('success', false);
+            $successfulProducts = collect($provisioningResults)->where('success', true);
+
+            $errorMessage = $failedProducts->count() === count($provisioningResults)
+                ? "Todos los productos fallaron durante el aprovisionamiento"
+                : "Aprovisionamiento parcial: {$successfulProducts->count()}/{$this->countTotal($provisioningResults)} productos exitosos";
+
+            $errorDetails = [
+                'Order ID' => $order->id,
+                'Order Number' => $order->order_number,
+                'Order Status' => $order->status,
+                'Total Products' => count($provisioningResults),
+                'Successful Products' => $successfulProducts->count(),
+                'Failed Products' => $failedProducts->count(),
+                'Error Time' => now()->format('Y-m-d H:i:s')
+            ];
+
+            // Pass detailed product results for notification formatting
+            $notificationService->sendMicrosoftErrorNotificationWithProducts(
+                $order,
+                $errorMessage,
+                $errorDetails,
+                $provisioningResults
+            );
+
+        } catch (Exception $e) {
+            // Silent fail for notification errors
+            Log::error("Failed to send product failure notification", [
+                'order_id' => $order->id ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Helper to count total provisioning results
+     */
+    private function countTotal(array $results): int
+    {
+        return count($results);
     }
 }

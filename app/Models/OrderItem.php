@@ -54,7 +54,9 @@ class OrderItem extends Model
         'product_metadata',
         'pricing_metadata',
         'fulfillment_status',
+        'fulfillment_error',
         'fulfilled_at',
+        'processing_started_at',
         'refunded_amount',
         'refunded_at',
         'refund_reason',
@@ -74,6 +76,7 @@ class OrderItem extends Model
         'product_metadata' => 'array',
         'pricing_metadata' => 'array',
         'fulfilled_at' => 'datetime',
+        'processing_started_at' => 'datetime',
         'refunded_at' => 'datetime',
     ];
 

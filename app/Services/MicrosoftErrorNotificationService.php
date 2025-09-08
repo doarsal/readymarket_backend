@@ -51,6 +51,47 @@ class MicrosoftErrorNotificationService
     }
 
     /**
+     * Send error notification with detailed product information
+     */
+    public function sendMicrosoftErrorNotificationWithProducts(Order $order, string $errorMessage, array $errorDetails = [], array $productResults = []): void
+    {
+        try {
+            $recipientEmails = env('MICROSOFT_ERROR_NOTIFICATION_EMAIL', 'salvador.rodriguez@readymind.ms');
+
+            // Convert comma-separated emails to array
+            $emailList = array_map('trim', explode(',', $recipientEmails));
+
+            // Load necessary relationships
+            $order->load(['user', 'microsoftAccount', 'cartItems.product']);
+
+            // Send email notification to each recipient
+            foreach ($emailList as $email) {
+                if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    Mail::send('emails.microsoft-error-detailed', [
+                        'order' => $order,
+                        'errorMessage' => $errorMessage,
+                        'errorDetails' => $errorDetails,
+                        'productResults' => $productResults,
+                        'timestamp' => now()->format('Y-m-d H:i:s')
+                    ], function ($message) use ($email, $order) {
+                        $message->to($email)
+                               ->subject('🚨 No se procesó pedido en Readymarket - Orden ' . $order->order_number);
+                    });
+
+                    Log::info("Detailed Microsoft error notification email sent to {$email} for order {$order->id}");
+                }
+            }
+
+            // Send WhatsApp notification with product details
+            $whatsappService = new WhatsAppNotificationService();
+            $whatsappService->sendMicrosoftErrorNotificationWithProducts($order, $errorMessage, $errorDetails, $productResults);
+
+        } catch (\Exception $e) {
+            Log::error("Failed to send detailed Microsoft error notification: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Send error notification email and WhatsApp when Microsoft account creation fails
      */
     public function sendMicrosoftAccountCreationErrorNotification($microsoftAccount, string $errorMessage, array $errorDetails = [], array $microsoftErrorDetails = []): void
