@@ -617,4 +617,89 @@ class WhatsAppNotificationService
 
         return $message;
     }
+
+    /**
+     * Send WhatsApp message for invoice generation errors
+     */
+    public function sendInvoiceErrorNotification($order, string $errorMessage, array $errorDetails = [], array $receiverData = []): void
+    {
+        try {
+            $phoneNumbers = env('WHATSAPP_NOTIFICATION_NUMBER');
+
+            if (!$phoneNumbers || !$this->graphToken || !$this->phoneId) {
+                Log::warning('WhatsApp configuration incomplete for invoice error');
+                return;
+            }
+
+            // Convert comma-separated numbers to array
+            $phoneList = array_map('trim', explode(',', $phoneNumbers));
+
+            // Format message for WhatsApp
+            $message = $this->formatInvoiceErrorMessage($order, $errorMessage, $errorDetails, $receiverData);
+
+            // Send to each phone number
+            foreach ($phoneList as $phoneNumber) {
+                if (!empty($phoneNumber)) {
+                    try {
+                        $this->sendMessage($phoneNumber, $message);
+                        Log::info("WhatsApp invoice error notification sent to {$phoneNumber} for Order: {$order->order_number}");
+                    } catch (Exception $sendException) {
+                        Log::error("Failed to send WhatsApp invoice error to {$phoneNumber}: " . $sendException->getMessage());
+                        // Continue with next number even if one fails
+                    }
+                }
+            }
+
+        } catch (Exception $e) {
+            Log::error('Error sending WhatsApp invoice error notification: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Format invoice error message for WhatsApp
+     */
+    private function formatInvoiceErrorMessage($order, string $errorMessage, array $errorDetails = [], array $receiverData = []): string
+    {
+        $message = "🧾🚨 *ERROR EN FACTURACIÓN*\n";
+        $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
+
+        $message .= "📋 *Orden:* {$order->order_number}\n";
+        $message .= "💰 *Total:* $" . number_format($order->total_amount, 2) . " MXN\n";
+        $message .= "💳 *Estado Pago:* {$order->payment_status}\n";
+
+        if ($order->user) {
+            $message .= "\n👤 *Cliente:*\n";
+            $message .= "• Nombre: {$order->user->name}\n";
+            $message .= "• Email: {$order->user->email}\n";
+            if ($order->user->phone) {
+                $message .= "• Teléfono: {$order->user->phone}\n";
+            }
+        }
+
+        if (!empty($receiverData)) {
+            $message .= "\n🧾 *Datos de Facturación:*\n";
+            $message .= "• RFC: " . ($receiverData['rfc'] ?? 'N/A') . "\n";
+            $message .= "• Razón Social: " . ($receiverData['name'] ?? 'N/A') . "\n";
+            $message .= "• CP: " . ($receiverData['postal_code'] ?? 'N/A') . "\n";
+        }
+
+        $message .= "\n🚨 *Error:*\n";
+        $message .= $errorMessage . "\n";
+
+        if (!empty($errorDetails)) {
+            $message .= "\n🔧 *Detalles Técnicos:*\n";
+            $message .= "```" . json_encode($errorDetails, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "```\n";
+        }
+
+        $message .= "\n🛒 *Productos:*\n";
+        foreach ($order->items as $index => $item) {
+            $productName = $item->product_name ?? $item->product->ProductTitle ?? 'Producto sin nombre';
+            $message .= "• {$productName} (x{$item->quantity}) - $" . number_format($item->line_total, 2) . "\n";
+        }
+
+        $message .= "\n⏰ *Fecha:* " . now()->format('d/m/Y H:i:s');
+        $message .= "\n\n🔧 *Acción requerida:* Revisar el sistema de facturación";
+
+        return $message;
+    }
 }

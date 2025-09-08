@@ -588,7 +588,7 @@ class MicrosoftAccountController extends Controller
      *     path="/api/v1/microsoft-accounts/check-domain",
      *     tags={"Microsoft Accounts"},
      *     summary="Check domain availability",
-     *     description="Check if domain is available for current user",
+     *     description="Check if domain is available globally (not user-specific)",
      *     security={{"bearerAuth":{}}},
      *     @OA\RequestBody(
      *         required=true,
@@ -615,11 +615,10 @@ class MicrosoftAccountController extends Controller
             'domain' => 'required|string|max:150'
         ]);
 
-        $userId = auth()->id();
         $account = new MicrosoftAccount();
         $cleanDomain = $account->formatDomain($request->domain);
         $domainConcatenated = $account->generateDomainConcatenated($request->domain);
-        $available = $account->isDomainAvailable($cleanDomain, $userId);
+        $available = $account->isDomainAvailable($cleanDomain);
 
         return response()->json([
             'success' => true,

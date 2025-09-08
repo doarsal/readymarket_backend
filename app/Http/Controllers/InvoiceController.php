@@ -141,14 +141,38 @@ class InvoiceController extends Controller
                 ]);
             }
 
-            // Use default test receiver data for easy testing
-            $receiverData = [
-                'rfc' => 'XAXX010101000',  // RFC genérico para pruebas
-                'name' => 'Cliente de Prueba S.A. de C.V.',
-                'postal_code' => '26015',   // Debe coincidir con LugarExpedicion
-                'tax_regime' => '616',      // Sin obligaciones fiscales (personas físicas)
-                'cfdi_use' => 'S01'         // Sin efectos fiscales
-            ];
+            // Load billing information from order with tax regime relation
+            $order->load(['billingInformation.taxRegime', 'billingInformation.cfdiUsage']);
+
+            if (!$order->billingInformation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order #' . $orderId . ' does not have billing information'
+                ], 400);
+            }
+
+            $billing = $order->billingInformation;
+
+            // Use test data in test mode, real data in production
+            if (config('facturalo.test_mode', true)) {
+                // Test mode: use hardcoded test data
+                $receiverData = [
+                    'rfc' => 'XAXX010101000', // RFC genérico para pruebas del SAT
+                    'name' => 'Cliente de Prueba S.A. de C.V.',
+                    'postal_code' => '26015', // Debe coincidir con LugarExpedicion
+                    'tax_regime' => '616', // Sin obligaciones fiscales
+                    'cfdi_use' => 'S01' // Sin efectos fiscales
+                ];
+            } else {
+                // Production mode: use real billing data from order
+                $receiverData = [
+                    'rfc' => $billing->rfc,
+                    'name' => $billing->organization,
+                    'postal_code' => $billing->postal_code,
+                    'tax_regime' => $billing->taxRegime ? $billing->taxRegime->code : '616',
+                    'cfdi_use' => $billing->cfdiUsage ? $billing->cfdiUsage->code : 'S01'
+                ];
+            }
 
             Log::info('Starting invoice service generation', [
                 'order_id' => $orderId,

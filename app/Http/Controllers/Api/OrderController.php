@@ -49,7 +49,7 @@ class OrderController extends Controller
         $user = Auth::user();
 
         $query = Order::where('user_id', $user->id)
-                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'orderItems'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'orderItems', 'invoice'])
                      ->orderBy('created_at', 'desc');
 
         if ($request->has('status')) {
@@ -478,12 +478,12 @@ class OrderController extends Controller
                     'success' => true,
                     'message' => $result['message'],
                     'data' => [
-                        'order_id' => $result['order_id'],
-                        'order_status' => $result['order_status'],
-                        'fulfillment_status' => $result['fulfillment_status'],
-                        'total_products' => $result['total_products'],
-                        'successful_products' => $result['successful_products'],
-                        'failed_products' => $result['failed_products'],
+                        'order_id' => $result['order_id'] ?? $order->id,
+                        'order_status' => $result['order_status'] ?? $order->status,
+                        'fulfillment_status' => $result['fulfillment_status'] ?? $order->fulfillment_status,
+                        'total_products' => $result['total_products'] ?? 0,
+                        'successful_products' => $result['successful_products'] ?? 0,
+                        'failed_products' => $result['failed_products'] ?? 0,
                         'product_details' => $result['product_details'] ?? [],
                         'cart_id' => $result['cart_id'] ?? null,
                         'subscriptions_count' => $result['subscriptions_count'] ?? 0
@@ -496,7 +496,7 @@ class OrderController extends Controller
                     'success' => false,
                     'message' => $result['message'] ?? 'Error al procesar la orden en Microsoft Partner Center',
                     'data' => [
-                        'order_id' => $result['order_id'],
+                        'order_id' => $result['order_id'] ?? $order->id,
                         'order_status' => $result['order_status'] ?? 'processing',
                         'fulfillment_status' => $result['fulfillment_status'] ?? 'pending',
                         'total_products' => $result['total_products'] ?? 0,

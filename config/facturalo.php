@@ -65,6 +65,9 @@ return [
         'payment_form' => '03', // Transferencia electrónica
         'expedition_place' => env('FACTURALO_CP'),
         'cfdi_use' => 'G03', // Gastos en general
+        'product_service_code' => '43232408', // Software - Computers
+        'unit_code' => 'E48', // Unidad de servicio
+        'unit' => 'Unidad de servicio',
     ],
 
     /*
@@ -74,7 +77,7 @@ return [
     */
     'taxes' => [
         'iva' => [
-            'rate' => 0.16,
+            'rate' => (float) env('TAX_RATE', 16) / 100, // Convert percentage to decimal (16 -> 0.16)
             'tax_code' => '002',
             'factor_type' => 'Tasa',
         ],

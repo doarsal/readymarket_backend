@@ -686,70 +686,152 @@ class PartnerCenterProvisioningService
     private function processFakeOrder(Order $order): array
     {
         try {
-            // Get cart items
-            $cartItems = $order->cart->items()->with('product')->where('status', 'active')->get();
+            // Use the same logic as real mode to determine what needs processing
+            $cartItemsToProcess = $this->getCartItemsThatNeedProcessing($order);
 
-            // Simulate line items preparation
-            foreach ($cartItems as $index => $item) {
-                $fakeLineItem = [
-                    'id' => $index,
-                    'catalogItemId' => $item->sku_id ?? '0001',
-                    'quantity' => $item->quantity,
-                    'billingCycle' => 'Monthly',
-                    'termDuration' => 'P1M'
+            if ($cartItemsToProcess->isEmpty()) {
+                // All products are already fulfilled - same logic as real mode
+                $order->load('orderItems');
+                $allOrderItems = $order->orderItems;
+                $totalProducts = $allOrderItems->count();
+                $successfulProducts = $allOrderItems->where('fulfillment_status', 'fulfilled')->count();
+
+                if ($successfulProducts === $totalProducts && $successfulProducts > 0) {
+                    $order->update([
+                        'status' => 'completed',
+                        'fulfillment_status' => 'fulfilled'
+                    ]);
+                }
+
+                return [
+                    'success' => true,
+                    'message' => $successfulProducts === $totalProducts
+                        ? "✅ FAKE MODE: Orden ya completada: todos los productos ({$totalProducts}) están exitosos"
+                        : "ℹ️ FAKE MODE: No hay productos que procesar actualmente",
+                    'order_id' => $order->id,
+                    'order_status' => $order->fresh()->status,
+                    'fulfillment_status' => $order->fresh()->fulfillment_status,
+                    'total_products' => $totalProducts,
+                    'successful_products' => $successfulProducts,
+                    'failed_products' => $totalProducts - $successfulProducts,
+                    'products_processed_this_run' => 0,
+                    'product_details' => $this->formatExistingOrderItems($allOrderItems),
+                    'provisioning_results' => []
                 ];
             }
 
-            // Simulate Microsoft cart creation success
-            $fakeCartId = 'fake-cart-' . uniqid();
+            // FAKE MODE: Simulate successful processing for all items that need processing
+            $fakeProvisioningResults = [];
 
-            // Simulate checkout success
-            $fakeCheckoutResponse = [
-                'orders' => [
+            foreach ($cartItemsToProcess as $cartItem) {
+                // Debug: Log para ver qué información tiene el producto
+                \Log::info("FAKE MODE - Processing cart item", [
+                    'cart_item_id' => $cartItem->id,
+                    'product_id' => $cartItem->product_id,
+                    'product_loaded' => $cartItem->product ? 'yes' : 'no',
+                    'product_title' => $cartItem->product ? $cartItem->product->ProductTitle : 'no product',
+                    'all_product_data' => $cartItem->product ? $cartItem->product->toArray() : 'no product'
+                ]);
+
+                // Create/update order item as fulfilled
+                $orderItem = $order->orderItems()->updateOrCreate(
                     [
-                        'lineItems' => $cartItems->map(function($item, $index) {
-                            return [
-                                'offerId' => $item->sku_id ?? '0001',
-                                'subscriptionId' => 'fake-sub-' . uniqid(),
-                                'termDuration' => 'P1M',
-                                'transactionType' => 'New',
-                                'friendlyName' => $item->product->product_name ?? 'Fake Product',
-                                'quantity' => $item->quantity,
-                                'pricing' => [
-                                    'listPrice' => $item->unit_price ?? 100
-                                ]
-                            ];
-                        })->toArray()
+                        'product_id' => $cartItem->product_id
+                    ],
+                    [
+                        'quantity' => $cartItem->quantity,
+                        'unit_price' => $cartItem->unit_price,
+                        'line_total' => $cartItem->total_price,
+                        'product_title' => $cartItem->product->ProductTitle ?? 'Unknown Product',
+                        'sku_id' => $cartItem->product->SkuId ?? $cartItem->sku_id ?? 'fake-sku-' . $cartItem->id,
+                        'fulfillment_status' => 'fulfilled',
+                        'fulfilled_at' => now()
                     ]
-                ]
-            ];
+                );
 
-            // Save fake subscriptions
-            $this->saveSubscriptions($order, $fakeCheckoutResponse, $cartItems);
+                // Create fake subscription (same as real mode would do)
+                Subscription::updateOrCreate(
+                    [
+                        'order_id' => $order->id,
+                        'product_id' => $cartItem->product_id
+                    ],
+                    [
+                        'subscription_identifier' => $order->order_number,
+                        'offer_id' => $cartItem->product->SkuId ?? $cartItem->sku_id ?? 'fake-offer-' . $cartItem->id,
+                        'subscription_id' => 'fake-sub-' . uniqid(),
+                        'term_duration' => 'P1M',
+                        'transaction_type' => 'New',
+                        'friendly_name' => $cartItem->product->ProductTitle ?? 'Fake Product',
+                        'quantity' => $cartItem->quantity,
+                        'pricing' => $cartItem->unit_price ?? 100,
+                        'status' => 1,
+                        'microsoft_account_id' => $order->microsoft_account_id,
+                        'sku_id' => $cartItem->product->SkuId ?? $cartItem->sku_id ?? 'fake-sku-' . $cartItem->id,
+                        'created_by' => 'FAKE MODE'
+                    ]
+                );
 
-            // In FAKE mode, always mark as completed (it's simulated)
-            $order->update([
-                'status' => 'completed',
-                'fulfillment_status' => 'fulfilled'
-            ]);
+                // Add to fake provisioning results
+                $fakeSubscriptionId = 'fake-sub-' . uniqid();
+                $fakeProvisioningResults[] = [
+                    'cart_item_id' => $cartItem->id,
+                    'product_id' => $cartItem->product_id,
+                    'product_title' => $cartItem->product->ProductTitle ?? 'Unknown Product',
+                    'quantity' => $cartItem->quantity,
+                    'status' => 'success',
+                    'subscription_id' => $fakeSubscriptionId,
+                    'microsoft_cart_id' => 'fake-cart-' . uniqid(),
+                    'success' => true,
+                    'processed_at' => now(),
+                    'mode' => 'FAKE'
+                ];
+            }
+
+            // Calculate final statistics (same logic as real mode)
+            $order->refresh();
+            $order->load('orderItems');
+            $allOrderItems = $order->orderItems;
+            $totalProducts = $allOrderItems->count();
+            $successfulProducts = $allOrderItems->where('fulfillment_status', 'fulfilled')->count();
+            $currentRunSuccessful = count($fakeProvisioningResults);
+
+            // Mark order as completed if all products are fulfilled
+            if ($successfulProducts === $totalProducts && $totalProducts > 0) {
+                $order->update([
+                    'status' => 'completed',
+                    'fulfillment_status' => 'fulfilled'
+                ]);
+            }
 
             return [
                 'success' => true,
-                'message' => 'Order processed successfully in FAKE MODE',
-                'order_status' => 'completed',
-                'fulfillment_status' => 'fulfilled',
-                'total_products' => $cartItems->count(),
-                'successful_products' => $cartItems->count(),
-                'data' => [
-                    'order_id' => $order->id,
-                    'cart_id' => $fakeCartId,
-                    'subscriptions_count' => $cartItems->count(),
-                    'mode' => 'FAKE'
-                ]
+                'message' => "✅ FAKE MODE: Aprovisionamiento exitoso. Procesados {$currentRunSuccessful} productos de {$cartItemsToProcess->count()}",
+                'order_id' => $order->id,
+                'order_status' => $order->fresh()->status,
+                'fulfillment_status' => $order->fresh()->fulfillment_status,
+                'total_products' => $totalProducts,
+                'successful_products' => $successfulProducts,
+                'failed_products' => $totalProducts - $successfulProducts,
+                'products_processed_this_run' => $currentRunSuccessful,
+                'products_successful_this_run' => $currentRunSuccessful,
+                'product_details' => $this->formatProductDetails($fakeProvisioningResults),
+                'provisioning_results' => $fakeProvisioningResults,
+                'mode' => 'FAKE'
             ];
 
         } catch (Exception $e) {
-            throw new Exception("FAKE MODE processing failed: " . $e->getMessage());
+            \Log::error('Error in FAKE mode processing: ' . $e->getMessage(), [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Error en modo FAKE: ' . $e->getMessage(),
+                'order_id' => $order->id,
+                'mode' => 'FAKE'
+            ];
         }
     }
 
@@ -836,7 +918,7 @@ class PartnerCenterProvisioningService
                 'quantity' => $result['quantity'],
                 'status' => $result['success'] ? 'success' : 'failed',
                 'status_emoji' => $result['success'] ? '✅' : '❌',
-                'processed_at' => $result['processed_at']
+                'processed_at' => $result['processed_at'] ?? now()
             ];
 
             if ($result['success']) {
@@ -926,7 +1008,11 @@ class PartnerCenterProvisioningService
             ];
 
             if ($orderItem->fulfillment_status === 'fulfilled') {
-                $detail['subscription_id'] = $orderItem->microsoft_subscription_id;
+                // OrderItems no tiene microsoft_subscription_id, buscar en subscriptions si existe
+                $subscription = \App\Models\Subscription::where('order_id', $orderItem->order_id)
+                    ->where('product_id', $orderItem->product_id)
+                    ->first();
+                $detail['subscription_id'] = $subscription ? $subscription->subscription_id : null;
             } else {
                 $detail['error_message'] = $orderItem->fulfillment_error;
             }

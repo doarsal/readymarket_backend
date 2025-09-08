@@ -256,7 +256,8 @@ class CartService
     protected function updateCartTotals(Cart $cart): void
     {
         $subtotal = CartItem::where('cart_id', $cart->id)->sum('total_price');
-        $taxAmount = $subtotal * 0.1; // 10% tax
+        $taxRate = config('facturalo.taxes.iva.rate');
+        $taxAmount = $subtotal * $taxRate;
         $total = $subtotal + $taxAmount;
 
         $cart->update([

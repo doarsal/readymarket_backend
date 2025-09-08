@@ -190,10 +190,14 @@ class MicrosoftAccount extends Model
     }
 
     // Validaciones
-    public function isDomainAvailable(string $domain, int $userId, ?int $excludeId = null): bool
+    public function isDomainAvailable(string $domain, ?int $userId = null, ?int $excludeId = null): bool
     {
-        $query = static::where('domain', $domain)
-                      ->where('user_id', $userId);
+        $query = static::where('domain', $domain);
+
+        // Si se proporciona userId, filtrar por usuario específico
+        if ($userId !== null) {
+            $query->where('user_id', $userId);
+        }
 
         if ($excludeId) {
             $query->where('id', '!=', $excludeId);

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Services\InvoiceErrorNotificationService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -55,19 +56,19 @@ class InvoiceService
     public function generateInvoiceFromOrder(Order $order, array $receiverData): Invoice
     {
         try {
-            // Validate order
+            // Validate order BEFORE creating any records
             $this->validateOrder($order);
 
-            // Create invoice record
-            $invoice = $this->createInvoiceRecord($order, $receiverData);
+            // Generate CFDI JSON (without creating invoice record yet)
+            $cfdiData = $this->generateCfdiDataForOrder($order, $receiverData);
 
-            // Generate CFDI JSON
-            $cfdiData = $this->generateCfdiData($order, $receiverData, $invoice);
-
-            // Send to FacturaloPlus
+            // Send to FacturaloPlus FIRST
             $response = $this->stampInvoice($cfdiData);
 
             if ($response['success']) {
+                // Only create invoice record if FacturaloPlus succeeded
+                $invoice = $this->createInvoiceRecord($order, $receiverData);
+
                 // Generar PDF si no viene en la respuesta inicial
                 $pdfContent = $response['pdf'];
                 if (!$pdfContent && $response['uuid']) {
@@ -86,20 +87,35 @@ class InvoiceService
                     'uuid' => $response['uuid'],
                     'has_pdf' => !empty($pdfContent)
                 ]);
-            } else {
-                $invoice->markAsError($response);
-                Log::error('Invoice stamping failed', ['invoice_id' => $invoice->id, 'error' => $response]);
-                throw new Exception('Failed to stamp invoice: ' . $response['message']);
-            }
 
-            return $invoice;
+                return $invoice;
+            } else {
+                // FacturaloPlus failed - DO NOT create invoice record
+                $errorMessage = 'Failed to stamp invoice: ' . $response['message'];
+
+                Log::error('Invoice stamping failed - no record created', [
+                    'order_id' => $order->id,
+                    'error' => $response,
+                    'receiver_data' => $receiverData
+                ]);
+
+                // Send error notifications
+                $this->sendInvoiceErrorNotifications($order, $errorMessage, $response, $receiverData);
+
+                throw new Exception($errorMessage);
+            }
 
         } catch (Exception $e) {
             Log::error('Error generating invoice', [
                 'order_id' => $order->id,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
+                'receiver_data' => $receiverData
             ]);
+
+            // Send error notifications for any exception
+            $this->sendInvoiceErrorNotifications($order, $e->getMessage(), [], $receiverData);
+
             throw $e;
         }
     }
@@ -170,9 +186,9 @@ class InvoiceService
             'receiver_tax_regime' => $receiverData['tax_regime'] ?? '616',
             'receiver_postal_code' => $receiverData['postal_code'],
             'receiver_cfdi_use' => $receiverData['cfdi_use'] ?? $defaults['cfdi_use'],
-            'subtotal' => $this->calculateSubtotal($order),
-            'tax_amount' => $this->calculateTaxAmount($order),
-            'total' => $this->calculateTotal($order),
+            'subtotal' => $order->subtotal,
+            'tax_amount' => $order->tax_amount,
+            'total' => $order->total_amount,
             'currency' => $defaults['currency'],
             'exchange_rate' => $defaults['exchange_rate'],
             'payment_method' => $defaults['payment_method'],
@@ -184,113 +200,72 @@ class InvoiceService
     }
 
     /**
-     * Calculate subtotal from order items
+     * Send error notifications when invoice generation fails
      */
-    protected function calculateSubtotal(Order $order): float
+    private function sendInvoiceErrorNotifications(Order $order, string $errorMessage, array $errorDetails, array $receiverData): void
     {
-        $subtotal = 0;
-        foreach ($order->items as $item) {
-            // unit_price includes tax, so divide by 1.16 to get price without tax
-            $unitPriceWithoutTax = $item->unit_price / 1.16;
-            $subtotal += $unitPriceWithoutTax * $item->quantity;
+        try {
+            $notificationService = new InvoiceErrorNotificationService();
+            $notificationService->sendInvoiceErrorNotification($order, $errorMessage, $errorDetails, $receiverData);
+        } catch (Exception $e) {
+            // Silent fail for notification errors - don't break the main flow
+            Log::error('Failed to send invoice error notifications', [
+                'order_id' => $order->id,
+                'notification_error' => $e->getMessage()
+            ]);
         }
-        return $subtotal;
     }
 
     /**
-     * Calculate tax amount from order items
+     * Generate CFDI data for order without creating invoice record first
      */
-    protected function calculateTaxAmount(Order $order): float
+    protected function generateCfdiDataForOrder(Order $order, array $receiverData): array
     {
-        $taxes = config('facturalo.taxes.iva');
-        $subtotal = $this->calculateSubtotal($order);
-        return $subtotal * $taxes['rate'];
-    }
-
-    /**
-     * Calculate total amount (subtotal + taxes)
-     */
-    protected function calculateTotal(Order $order): float
-    {
-        $subtotal = $this->calculateSubtotal($order);
-        $taxAmount = $this->calculateTaxAmount($order);
-        return $subtotal + $taxAmount;
-    }
-
-    /**
-     * Generate CFDI data in FacturaloPlus format
-     */
-    protected function generateCFDIDataForFacturaloPlus(Invoice $invoice): array
-    {
-        $order = $invoice->order;
         $issuer = config('facturalo.issuer');
         $defaults = config('facturalo.defaults');
         $taxes = config('facturalo.taxes.iva');
 
-        // Calculate subtotal and taxes
-        $subtotal = $invoice->subtotal;
-        $taxAmount = $invoice->tax_amount;
-        $total = $invoice->total;
+        // Generate temporary invoice data for CFDI
+        $serie = $defaults['serie'];
+        $folio = Invoice::generateNextInvoiceNumber($serie);
+        $issueDate = Carbon::now();
 
-        // Generate concepts for each order item
-        $conceptos = [];
-        foreach ($order->items as $item) {
-            // Calculate unit price without tax (item->unit_price includes tax)
-            $unitPriceWithoutTax = $item->unit_price / 1.16;
-            $itemSubtotal = $unitPriceWithoutTax * $item->quantity;
-            $itemTax = $itemSubtotal * $taxes['rate'];
+        // Use totals from database - they are already calculated correctly
+        $subtotal = floatval($order->subtotal);
+        $taxAmount = floatval($order->tax_amount);
+        $total = floatval($order->total_amount);
 
-            $conceptos[] = [
-                'ClaveProdServ' => $defaults['product_service_code'],
-                'Cantidad' => (string)$item->quantity,
-                'ClaveUnidad' => $defaults['unit_code'],
-                'Unidad' => $defaults['unit'],
-                'Descripcion' => $item->product_name,
-                'ValorUnitario' => number_format($unitPriceWithoutTax, 2, '.', ''),
-                'Importe' => number_format($itemSubtotal, 2, '.', ''),
-                'ObjetoImp' => '02',
-                'Impuestos' => [
-                    'Traslados' => [
-                        [
-                            'Base' => number_format($itemSubtotal, 2, '.', ''),
-                            'Impuesto' => $taxes['tax_code'],
-                            'TipoFactor' => $taxes['factor_type'],
-                            'TasaOCuota' => number_format($taxes['rate'], 6, '.', ''),
-                            'Importe' => number_format($itemTax, 2, '.', '')
-                        ]
-                    ]
-                ]
-            ];
-        }
+        // Generate concepts using the database values
+        $concepts = $this->formatConceptsForCfdiFromOrder($order, $taxes);
 
-        return [
+        $data = [
             'Comprobante' => [
                 'Version' => '4.0',
-                'Serie' => $invoice->serie,
-                'Folio' => $invoice->folio,
-                'Fecha' => $invoice->issue_date->format('Y-m-d\TH:i:s'),
+                'Serie' => $serie,
+                'Folio' => $folio,
+                'Fecha' => $issueDate->format('Y-m-d\TH:i:s'),
                 'NoCertificado' => $issuer['certificate_number'],
                 'SubTotal' => number_format($subtotal, 2, '.', ''),
-                'Moneda' => $invoice->currency,
+                'Moneda' => $defaults['currency'],
                 'Total' => number_format($total, 2, '.', ''),
                 'TipoDeComprobante' => $defaults['voucher_type'],
-                'MetodoPago' => $invoice->payment_method,
-                'FormaPago' => $invoice->payment_form,
+                'MetodoPago' => $defaults['payment_method'],
+                'FormaPago' => $this->mapPaymentForm($order->payment_method ?? 'credit_card'),
                 'Exportacion' => $defaults['exportation'],
-                'LugarExpedicion' => $invoice->expedition_place,
+                'LugarExpedicion' => $defaults['expedition_place'],
                 'Emisor' => [
-                    'Rfc' => $invoice->issuer_rfc,
-                    'Nombre' => $invoice->issuer_name,
-                    'RegimenFiscal' => $invoice->issuer_tax_regime
+                    'Rfc' => $issuer['rfc'],
+                    'Nombre' => $issuer['name'],
+                    'RegimenFiscal' => $issuer['tax_regime']
                 ],
                 'Receptor' => [
-                    'Rfc' => $invoice->receiver_rfc,
-                    'Nombre' => $invoice->receiver_name,
-                    'UsoCFDI' => $invoice->receiver_cfdi_use,
-                    'DomicilioFiscalReceptor' => $invoice->receiver_postal_code,
-                    'RegimenFiscalReceptor' => $invoice->receiver_tax_regime
+                    'Rfc' => $receiverData['rfc'],
+                    'Nombre' => $receiverData['name'],
+                    'UsoCFDI' => $receiverData['cfdi_use'] ?? $defaults['cfdi_use'],
+                    'DomicilioFiscalReceptor' => $receiverData['postal_code'],
+                    'RegimenFiscalReceptor' => $receiverData['tax_regime'] ?? '616'
                 ],
-                'Conceptos' => $conceptos,
+                'Conceptos' => $concepts,
                 'Impuestos' => [
                     'TotalImpuestosTrasladados' => number_format($taxAmount, 2, '.', ''),
                     'Traslados' => [
@@ -310,6 +285,56 @@ class InvoiceService
             ],
             'logo' => ''
         ];
+
+        return $data;
+    }
+
+    /**
+     * Format concepts for CFDI structure from order (without invoice record)
+     */
+    protected function formatConceptsForCfdiFromOrder(Order $order, array $taxes): array
+    {
+        $concepts = [];
+        $defaults = config('facturalo.defaults');
+
+        // Get totals from database - these are the authoritative values
+        $orderSubtotal = floatval($order->subtotal);
+        $orderTaxAmount = floatval($order->tax_amount);
+
+        // Calculate total from items to use for proportional distribution
+        $itemsTotal = $order->items->sum('line_total');
+
+        foreach ($order->items as $item) {
+            // Calculate proportional subtotal and tax based on order totals
+            $itemRatio = floatval($item->line_total) / $itemsTotal;
+            $itemSubtotal = $orderSubtotal * $itemRatio;
+            $itemTaxAmount = $orderTaxAmount * $itemRatio;
+            $itemUnitSubtotal = $itemSubtotal / $item->quantity;
+
+            $concepts[] = [
+                'ClaveProdServ' => $defaults['product_service_code'] ?? '43232408', // Software - Computers
+                'Cantidad' => (string)$item->quantity,
+                'ClaveUnidad' => $defaults['unit_code'] ?? 'E48',
+                'Unidad' => $defaults['unit'] ?? 'Unidad de servicio',
+                'Descripcion' => $item->product_title ?? $item->product->ProductTitle ?? 'Producto sin nombre',
+                'ValorUnitario' => number_format($itemUnitSubtotal, 2, '.', ''),
+                'Importe' => number_format($itemSubtotal, 2, '.', ''),
+                'ObjetoImp' => '02',
+                'Impuestos' => [
+                    'Traslados' => [
+                        [
+                            'Base' => number_format($itemSubtotal, 2, '.', ''),
+                            'Impuesto' => $taxes['tax_code'],
+                            'TipoFactor' => $taxes['factor_type'],
+                            'TasaOCuota' => number_format($taxes['rate'], 6, '.', ''),
+                            'Importe' => number_format($itemTaxAmount, 2, '.', '')
+                        ]
+                    ]
+                ]
+            ];
+        }
+
+        return $concepts;
     }
 
     /**
@@ -380,21 +405,18 @@ class InvoiceService
         try {
             // Debug output only in test mode
             if ($this->testMode) {
-                echo "🔍 DEBUG - Datos enviados a FacturaloPlus:
-";
-                echo json_encode($cfdiData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "
-";
+                Log::info('FacturaloPlus CFDI Data', [
+                    'cfdi_data' => $cfdiData
+                ]);
             }
 
             $jsonData = json_encode($cfdiData, JSON_UNESCAPED_UNICODE);
             $jsonB64 = base64_encode($jsonData);
 
             if ($this->testMode) {
-                echo "🔍 DEBUG - JSON Base64:
-";
-                echo substr($jsonB64, 0, 100) . "...
-
-";
+                Log::info('FacturaloPlus JSON Base64', [
+                    'json_b64_preview' => substr($jsonB64, 0, 100) . '...'
+                ]);
             }
 
             $response = Http::asForm()->post($this->baseUrl . '/timbrarJSON2', [
@@ -406,20 +428,19 @@ class InvoiceService
             ]);
 
             if ($this->testMode) {
-                echo "📡 Respuesta HTTP: " . $response->status() . "
-";
-                echo "📋 Respuesta completa:
-";
-                echo $response->body() . "
-
-";
+                Log::info('FacturaloPlus HTTP Response', [
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
             }
 
             if ($response->successful()) {
                 $result = $response->json();
 
                 if ($this->testMode) {
-                    echo "📊 Estructura respuesta timbrarJSON2: " . json_encode(array_keys($result), JSON_PRETTY_PRINT) . "\n";
+                    Log::info('FacturaloPlus Response Structure', [
+                        'response_keys' => array_keys($result)
+                    ]);
                 }
 
                 // FacturaloPlus indica éxito con code "200" y message que contiene "éxito"
@@ -463,9 +484,11 @@ class InvoiceService
                     }
 
                     if ($this->testMode) {
-                        echo "✅ UUID extraído: {$uuid}\n";
-                        echo "✅ XML presente: " . ($xmlContent ? 'Sí' : 'No') . "\n";
-                        echo "✅ PDF presente: " . ($pdfContent ? 'Sí' : 'No') . "\n";
+                        Log::info('FacturaloPlus Success Response', [
+                            'uuid' => $uuid,
+                            'xml_present' => $xmlContent ? 'Yes' : 'No',
+                            'pdf_present' => $pdfContent ? 'Yes' : 'No'
+                        ]);
                     }
 
                     return [
@@ -492,7 +515,9 @@ class InvoiceService
 
         } catch (Exception $e) {
             if ($this->testMode) {
-                echo "❌ ERROR en stampInvoice: " . $e->getMessage() . "\n";
+                Log::error('Error in stampInvoice (test mode)', [
+                    'error' => $e->getMessage()
+                ]);
             }
 
             Log::error('Error in stampInvoice', [
@@ -542,41 +567,6 @@ class InvoiceService
                 'description' => $item->product_title,
                 'unit_price' => $item->unit_price,
                 'amount' => $item->line_total
-            ];
-        }
-
-        return $concepts;
-    }    /**
-     * Format concepts for CFDI structure
-     */
-    protected function formatConceptsForCfdi(Order $order, array $taxes): array
-    {
-        $concepts = [];
-
-        foreach ($order->items as $item) {
-            $subtotal = $item->line_total / 1.16; // Assuming 16% tax
-            $taxAmount = $item->line_total - $subtotal;
-
-            $concepts[] = [
-                'ClaveProdServ' => '43232408', // Software - Computers
-                'Cantidad' => (string)$item->quantity,
-                'ClaveUnidad' => 'E48',
-                'Unidad' => 'Unidad de servicio',
-                'Descripcion' => $item->product_title,
-                'ValorUnitario' => number_format($item->unit_price / 1.16, 2, '.', ''),
-                'Importe' => number_format($subtotal, 2, '.', ''),
-                'ObjetoImp' => '02',
-                'Impuestos' => [
-                    'Traslados' => [
-                        [
-                            'Base' => number_format($subtotal, 2, '.', ''),
-                            'Impuesto' => $taxes['tax_code'],
-                            'TipoFactor' => $taxes['factor_type'],
-                            'TasaOCuota' => number_format($taxes['rate'], 6, '.', ''),
-                            'Importe' => number_format($taxAmount, 2, '.', '')
-                        ]
-                    ]
-                ]
             ];
         }
 
@@ -639,7 +629,7 @@ class InvoiceService
     {
         try {
             if ($this->testMode) {
-                echo "📄 Generando PDF para UUID: {$uuid}\n";
+                Log::info('Generating PDF for UUID', ['uuid' => $uuid]);
             }
 
             // FacturaloPlus: endpoint correcto para obtener PDF
@@ -650,51 +640,61 @@ class InvoiceService
             ]);
 
             if ($this->testMode) {
-                echo "📡 Respuesta PDF HTTP: " . $response->status() . "\n";
-                echo "📋 Contenido respuesta: " . substr($response->body(), 0, 200) . "...\n";
+                Log::info('PDF Response', [
+                    'status' => $response->status(),
+                    'body_preview' => substr($response->body(), 0, 200) . '...'
+                ]);
             }
 
             if ($response->successful()) {
                 $result = $response->json();
 
                 if ($this->testMode) {
-                    echo "📊 Estructura respuesta PDF: " . json_encode(array_keys($result), JSON_PRETTY_PRINT) . "\n";
+                    Log::info('PDF Response Structure', [
+                        'response_keys' => array_keys($result)
+                    ]);
                 }
 
                 // FacturaloPlus puede devolver el PDF en diferentes formatos
                 if (isset($result['success']) && $result['success'] === true && isset($result['pdf'])) {
                     if ($this->testMode) {
-                        echo "✅ PDF obtenido en campo 'pdf'\n";
+                        Log::info('PDF obtained from pdf field');
                     }
                     return $result['pdf'];
                 } elseif (isset($result['data']) && !empty($result['data'])) {
                     if ($this->testMode) {
-                        echo "✅ PDF obtenido en campo 'data'\n";
+                        Log::info('PDF obtained from data field');
                     }
                     return $result['data'];
                 } elseif (isset($result['pdf']) && !empty($result['pdf'])) {
                     if ($this->testMode) {
-                        echo "✅ PDF obtenido directamente\n";
+                        Log::info('PDF obtained directly');
                     }
                     return $result['pdf'];
                 } else {
                     if ($this->testMode) {
-                        echo "❌ No se encontró PDF en la respuesta\n";
-                        echo "📋 Respuesta completa: " . json_encode($result, JSON_PRETTY_PRINT) . "\n";
+                        Log::warning('PDF not found in response', [
+                            'response' => $result
+                        ]);
                     }
                     return null;
                 }
             } else {
                 if ($this->testMode) {
-                    echo "❌ Error HTTP: " . $response->status() . "\n";
-                    echo "📋 Error body: " . $response->body() . "\n";
+                    Log::error('PDF HTTP Error', [
+                        'status' => $response->status(),
+                        'body' => $response->body()
+                    ]);
                 }
                 return null;
             }
 
         } catch (Exception $e) {
             if ($this->testMode) {
-                echo "❌ ERROR generando PDF: " . $e->getMessage() . "\n";
+                Log::error('PDF Generation Error (test mode)', [
+                    'error' => $e->getMessage(),
+                    'uuid' => $uuid
+                ]);
             }
 
             Log::error('Error generating PDF', [

@@ -59,6 +59,11 @@ class Order extends Model
         'exchange_rate_date' => 'datetime'
     ];
 
+    protected $appends = [
+        'has_invoice',
+        'invoice_info'
+    ];
+
     /**
      * Boot del modelo
      */
@@ -126,6 +131,16 @@ class Order extends Model
         return $this->hasMany(CartItem::class, 'cart_id', 'cart_id');
     }
 
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    public function invoice(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Invoice::class)->latest();
+    }
+
     /**
      * Scopes
      */
@@ -162,6 +177,30 @@ class Order extends Model
     public function scopeByCustomer($query, $userId)
     {
         return $query->where('user_id', $userId);
+    }
+
+    /**
+     * Accessors
+     */
+    public function getHasInvoiceAttribute(): bool
+    {
+        return $this->invoice()->exists();
+    }
+
+    public function getInvoiceInfoAttribute(): ?array
+    {
+        $invoice = $this->invoice;
+        if (!$invoice) {
+            return null;
+        }
+
+        return [
+            'id' => $invoice->id,
+            'number' => $invoice->invoice_number,
+            'uuid' => $invoice->uuid,
+            'total' => $invoice->total,
+            'status' => $invoice->status
+        ];
     }
 
     /**

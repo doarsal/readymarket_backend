@@ -63,6 +63,7 @@ class CartController extends Controller
         try {
             // Usar getCartSummary para no crear carritos innecesarios
             $cartSummary = $this->cartService->getCartSummary();
+            $taxRate = config('facturalo.taxes.iva.rate');
 
             return response()->json([
                 'success' => true,
@@ -70,7 +71,7 @@ class CartController extends Controller
                     'id' => $cartSummary['exists'] ? $cartSummary['cart_id'] : null,
                     'items' => $cartSummary['items'],
                     'subtotal' => number_format($cartSummary['subtotal'], 2),
-                    'tax_amount' => number_format($cartSummary['subtotal'] * 0.1, 2), // 10% tax
+                    'tax_amount' => number_format($cartSummary['subtotal'] * $taxRate, 2),
                     'total_amount' => number_format($cartSummary['total_amount'], 2),
                     'currency_code' => 'MXN',
                     'status' => $cartSummary['exists'] ? 'active' : 'empty',
