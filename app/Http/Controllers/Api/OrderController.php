@@ -49,7 +49,7 @@ class OrderController extends Controller
         $user = Auth::user();
 
         $query = Order::where('user_id', $user->id)
-                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'orderItems', 'invoice'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'orderItems', 'invoice', 'paymentResponse'])
                      ->orderBy('created_at', 'desc');
 
         if ($request->has('status')) {
@@ -210,7 +210,7 @@ class OrderController extends Controller
 
         $order = Order::where('id', $id)
                      ->where('user_id', $user->id)
-                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'microsoftAccount'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'microsoftAccount', 'paymentResponse'])
                      ->first();
 
         if (!$order) {
@@ -313,7 +313,7 @@ class OrderController extends Controller
     public function trackByOrderNumber($orderNumber): JsonResponse
     {
         $order = Order::where('order_number', $orderNumber)
-                     ->with(['items.product', 'store'])
+                     ->with(['items.product', 'store', 'billingInformation', 'microsoftAccount', 'paymentResponse'])
                      ->first();
 
         if (!$order) {
@@ -356,6 +356,94 @@ class OrderController extends Controller
         return response()->json([
             'success' => true,
             'data' => $trackingInfo
+        ]);
+    }
+
+    /**
+     * @OA\Get(
+     *     path="/api/v1/orders/{orderNumber}/payment-details",
+     *     tags={"Orders"},
+     *     summary="Get order payment details",
+     *     description="Returns detailed payment information for an order by order number",
+     *     @OA\Parameter(
+     *         name="orderNumber",
+     *         in="path",
+     *         required=true,
+     *         description="Order number",
+     *         @OA\Schema(type="string")
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Payment details retrieved successfully"
+     *     )
+     * )
+     */
+    public function getPaymentDetails($orderNumber): JsonResponse
+    {
+        $order = Order::where('order_number', $orderNumber)
+                     ->with(['paymentResponse', 'billingInformation', 'microsoftAccount', 'currency'])
+                     ->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found'
+            ], 404);
+        }
+
+        $paymentDetails = [
+            'order_number' => $order->order_number,
+            'payment_status' => $order->payment_status,
+            'payment_method' => $order->payment_method,
+            'total_amount' => $order->total_amount,
+            'currency' => $order->currency->code ?? 'MXN',
+            'paid_at' => $order->paid_at?->format('Y-m-d H:i:s'),
+            'transaction_id' => $order->transaction_id,
+        ];
+
+        // Agregar información de tarjeta si existe
+        if ($order->paymentResponse && $order->paymentResponse->card_last_four) {
+            $cardInfo = $order->paymentResponse->getCardInfo();
+            $paymentDetails['card_info'] = [
+                'masked_number' => $cardInfo['masked_number'],
+                'last_four' => $cardInfo['last_four'],
+                'card_type' => $cardInfo['card_type'],
+                'card_name' => $order->paymentResponse->card_name,
+                'display_text' => $cardInfo['display_text']
+            ];
+        }
+
+        // Agregar información de transacción si existe
+        if ($order->paymentResponse) {
+            $paymentDetails['transaction_details'] = [
+                'auth_code' => $order->paymentResponse->auth_code,
+                'reference' => $order->paymentResponse->transaction_reference,
+                'gateway' => $order->paymentResponse->gateway,
+                'processed_at' => $order->paymentResponse->created_at?->format('Y-m-d H:i:s')
+            ];
+        }
+
+        // Agregar información de facturación si existe
+        if ($order->billingInformation) {
+            $paymentDetails['billing_info'] = [
+                'rfc' => $order->billingInformation->rfc,
+                'company_name' => $order->billingInformation->company_name,
+                'email' => $order->billingInformation->email
+            ];
+        }
+
+        // Agregar información de Microsoft si existe
+        if ($order->microsoftAccount) {
+            $paymentDetails['microsoft_account'] = [
+                'domain' => $order->microsoftAccount->domain,
+                'organization' => $order->microsoftAccount->organization,
+                'is_active' => $order->microsoftAccount->is_active
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $paymentDetails
         ]);
     }
 

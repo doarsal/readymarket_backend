@@ -123,6 +123,9 @@ Route::prefix('v1')->group(function () {
     // Public order tracking endpoint (no requiere autenticación)
     Route::get('orders/tracking/{order_number}', [OrderController::class, 'trackByOrderNumber']);
 
+    // Public order payment details endpoint (no requiere autenticación)
+    Route::get('orders/{order_number}/payment-details', [OrderController::class, 'getPaymentDetails']);
+
     // Shopping Cart endpoints (PÚBLICOS con autenticación flexible)
     Route::prefix('cart')->middleware('cart')->group(function () {
         Route::get('/', [CartController::class, 'show']);

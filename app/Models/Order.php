@@ -61,7 +61,9 @@ class Order extends Model
 
     protected $appends = [
         'has_invoice',
-        'invoice_info'
+        'invoice_info',
+        'card_number',
+        'card_type'
     ];
 
     /**
@@ -206,6 +208,25 @@ class Order extends Model
             'total' => $invoice->total,
             'status' => $invoice->status
         ];
+    }
+
+    public function getCardNumberAttribute(): ?string
+    {
+        if (!$this->paymentResponse) {
+            return null;
+        }
+
+        return $this->paymentResponse->getMaskedCardNumber();
+    }
+
+    public function getCardTypeAttribute(): ?string
+    {
+        if (!$this->paymentResponse) {
+            return null;
+        }
+
+        $cardInfo = $this->paymentResponse->getCardInfo();
+        return $cardInfo['card_type'] ?? null;
     }
 
     /**
