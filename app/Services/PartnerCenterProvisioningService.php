@@ -28,16 +28,18 @@ class PartnerCenterProvisioningService
 
     /**
      * Process order and create products in Partner Center
+     * Intelligently processes only failed or pending products on subsequent runs
      */
     public function processOrder(int $orderId): array
     {
         try {
-            // Get order with relationships
+            // Get order with relationships including order items
             $order = Order::with([
                 'cart.items.product',
-                'microsoftAccount'
+                'microsoftAccount',
+                'orderItems'
             ])->where('id', $orderId)
-              ->where('status', 'processing')
+              ->whereIn('status', ['processing', 'completed']) // Allow processing and completed orders with pending products
               ->first();
 
             if (!$order) {
@@ -62,24 +64,59 @@ class PartnerCenterProvisioningService
                 throw new Exception("Microsoft customer ID not found for order: {$orderId}");
             }
 
-            // Get cart items
-            $cartItems = $order->cart->items()->with('product')->where('status', 'active')->get();
-            if ($cartItems->isEmpty()) {
-                throw new Exception("No active cart items found for order: {$orderId}");
+            // INTELLIGENT PROCESSING: Determine which products need processing
+            $cartItemsToProcess = $this->getCartItemsThatNeedProcessing($order);
+
+            if ($cartItemsToProcess->isEmpty()) {
+                // All products are already fulfilled
+                $allOrderItems = $order->orderItems;
+                $totalProducts = $allOrderItems->count();
+                $successfulProducts = $allOrderItems->where('fulfillment_status', 'fulfilled')->count();
+
+                // Update order status to completed if all products are fulfilled
+                if ($successfulProducts === $totalProducts && $totalProducts > 0) {
+                    $order->update([
+                        'status' => 'completed',
+                        'fulfillment_status' => 'fulfilled'
+                    ]);
+                }
+
+                return [
+                    'success' => true,
+                    'message' => $successfulProducts === $totalProducts
+                        ? "✅ Orden ya completada: todos los productos ({$totalProducts}) están exitosos"
+                        : "ℹ️ No hay productos que procesar actualmente",
+                    'order_id' => $orderId,
+                    'order_status' => $order->fresh()->status,
+                    'fulfillment_status' => $order->fresh()->fulfillment_status,
+                    'total_products' => $totalProducts,
+                    'successful_products' => $successfulProducts,
+                    'failed_products' => $totalProducts - $successfulProducts,
+                    'products_processed_this_run' => 0,
+                    'product_details' => $this->formatExistingOrderItems($allOrderItems),
+                    'provisioning_results' => []
+                ];
             }
 
             // Get Microsoft access token
             $token = $this->getMicrosoftToken();
 
-            // Process each product individually for resilient provisioning
-            $provisioningResults = $this->processProductsIndividually($order, $cartItems, $microsoftCustomerId, $token);
+            // Process only the products that need processing
+            $provisioningResults = $this->processProductsIndividually($order, $cartItemsToProcess, $microsoftCustomerId, $token);
 
-            // Calculate overall success rate
-            $totalProducts = $cartItems->count();
-            $successfulProducts = collect($provisioningResults)->where('success', true)->count();
+            // Calculate overall success rate INCLUDING PREVIOUSLY SUCCESSFUL PRODUCTS
+            $order->refresh(); // Refresh the order to get updated data
+            $order->load('orderItems'); // Explicitly load the orderItems relationship
+            $allOrderItems = $order->orderItems;
+            $totalProducts = $allOrderItems->count();
+            $successfulProducts = $allOrderItems->where('fulfillment_status', 'fulfilled')->count();
+
+            // Debug: Log the counts for troubleshooting
+            \Log::info("Order {$orderId} - Total products: {$totalProducts}, Successful: {$successfulProducts}");
+            $currentRunSuccessful = collect($provisioningResults)->where('success', true)->count();
 
             // Set Azure spending budget if applicable (only for successful products)
-            $successfulCartItems = $cartItems->whereIn('id',
+            $successfulCartItems = $cartItemsToProcess->whereIn('id',
                 collect($provisioningResults)->where('success', true)->pluck('cart_item_id')
             );
             $azureSpendingAmount = $this->calculateAzureSpending($successfulCartItems);
@@ -88,12 +125,12 @@ class PartnerCenterProvisioningService
             }
 
             // Send notification if there are failed products
-            if ($successfulProducts < $totalProducts) {
+            if ($currentRunSuccessful < $cartItemsToProcess->count()) {
                 $this->sendProductFailureNotification($order, $provisioningResults);
             }
 
             // Determine final order status based on results
-            if ($successfulProducts === $totalProducts) {
+            if ($successfulProducts === $totalProducts && $totalProducts > 0) {
                 // All products successful - mark as completed
                 $order->update([
                     'status' => 'completed',
@@ -106,22 +143,24 @@ class PartnerCenterProvisioningService
                     'fulfillment_status' => 'partially_fulfilled'
                 ]);
             } else {
-                // All products failed - mark as processing with failed fulfillment
+                // All products failed or no products found - keep as processing
                 $order->update([
                     'status' => 'processing',
-                    'fulfillment_status' => 'failed'
+                    'fulfillment_status' => 'pending'
                 ]);
             }
 
             return [
-                'success' => $successfulProducts === $totalProducts,
-                'message' => $this->generateDetailedMessage($successfulProducts, $totalProducts, $provisioningResults),
+                'success' => $currentRunSuccessful === $cartItemsToProcess->count() && $cartItemsToProcess->count() > 0,
+                'message' => $this->generateIntelligentMessage($cartItemsToProcess->count(), $currentRunSuccessful, $cartItemsToProcess->count(), $currentRunSuccessful),
                 'order_id' => $orderId,
-                'order_status' => $order->fresh()->status,
-                'fulfillment_status' => $order->fresh()->fulfillment_status,
-                'total_products' => $totalProducts,
-                'successful_products' => $successfulProducts,
-                'failed_products' => $totalProducts - $successfulProducts,
+                'order_status' => $order->status,
+                'fulfillment_status' => $order->fulfillment_status,
+                'total_products' => $cartItemsToProcess->count(),
+                'successful_products' => $currentRunSuccessful,
+                'failed_products' => $cartItemsToProcess->count() - $currentRunSuccessful,
+                'products_processed_this_run' => $cartItemsToProcess->count(),
+                'products_successful_this_run' => $currentRunSuccessful,
                 'product_details' => $this->formatProductDetails($provisioningResults),
                 'provisioning_results' => $provisioningResults
             ];
@@ -654,12 +693,19 @@ class PartnerCenterProvisioningService
             // Save fake subscriptions
             $this->saveSubscriptions($order, $fakeCheckoutResponse, $cartItems);
 
-            // Update order status to completed
-            $order->update(['status' => 'completed']);
+            // In FAKE mode, always mark as completed (it's simulated)
+            $order->update([
+                'status' => 'completed',
+                'fulfillment_status' => 'fulfilled'
+            ]);
 
             return [
                 'success' => true,
                 'message' => 'Order processed successfully in FAKE MODE',
+                'order_status' => 'completed',
+                'fulfillment_status' => 'fulfilled',
+                'total_products' => $cartItems->count(),
+                'successful_products' => $cartItems->count(),
                 'data' => [
                     'order_id' => $order->id,
                     'cart_id' => $fakeCartId,
@@ -721,6 +767,28 @@ class PartnerCenterProvisioningService
     }
 
     /**
+     * Generate intelligent message for retry/continuation scenarios
+     */
+    private function generateIntelligentMessage(int $totalProducts, int $overallSuccessful, int $processedThisRun, int $successfulThisRun): string
+    {
+        if ($overallSuccessful === $totalProducts) {
+            if ($processedThisRun === 0) {
+                return "✅ Orden completada: todos los productos ({$totalProducts}) ya estaban exitosos";
+            } else {
+                return "✅ ¡Orden completada! Los últimos {$processedThisRun} productos se procesaron exitosamente. Total: {$totalProducts}/{$totalProducts}";
+            }
+        } elseif ($processedThisRun === 0) {
+            return "ℹ️ No hay productos pendientes de procesar. Estado actual: {$overallSuccessful}/{$totalProducts} exitosos";
+        } elseif ($successfulThisRun === $processedThisRun) {
+            return "✅ Procesamiento exitoso: {$successfulThisRun}/{$processedThisRun} productos procesados correctamente. Total: {$overallSuccessful}/{$totalProducts}";
+        } elseif ($successfulThisRun > 0) {
+            return "⚠️ Procesamiento parcial: {$successfulThisRun}/{$processedThisRun} productos exitosos en esta ejecución. Total: {$overallSuccessful}/{$totalProducts}";
+        } else {
+            return "❌ Procesamiento fallido: 0/{$processedThisRun} productos exitosos en esta ejecución. Total: {$overallSuccessful}/{$totalProducts}";
+        }
+    }
+
+    /**
      * Format product details for response
      */
     private function formatProductDetails(array $results): array
@@ -753,11 +821,66 @@ class PartnerCenterProvisioningService
     }
 
     /**
+     * Get cart items that need processing (not already fulfilled)
+     */
+    private function getCartItemsThatNeedProcessing(Order $order): \Illuminate\Database\Eloquent\Collection
+    {
+        // Get all cart items
+        $allCartItems = $order->cart->items()->with('product')->where('status', 'active')->get();
+
+        // If no order items exist yet, process all cart items (first run)
+        if ($order->orderItems->isEmpty()) {
+            return $allCartItems;
+        }
+
+        // Get cart items that correspond to order items that need processing
+        $orderItemsNeedingProcessing = $order->orderItems()
+            ->whereIn('fulfillment_status', ['failed', 'processing', 'pending'])
+            ->get();
+
+        // Get cart item IDs that need processing
+        $cartItemIdsToProcess = $orderItemsNeedingProcessing->pluck('cart_item_id')->filter();
+
+        // Return only cart items that need processing
+        return $allCartItems->whereIn('id', $cartItemIdsToProcess);
+    }
+
+    /**
+     * Format existing order items for response
+     */
+    private function formatExistingOrderItems($orderItems): array
+    {
+        $formatted = [];
+
+        foreach ($orderItems as $orderItem) {
+            $detail = [
+                'product_id' => $orderItem->product_id,
+                'product_title' => $orderItem->product_title ?? 'Unknown Product',
+                'quantity' => $orderItem->quantity,
+                'status' => $orderItem->fulfillment_status === 'fulfilled' ? 'success' : 'failed',
+                'processed_at' => $orderItem->updated_at
+            ];
+
+            if ($orderItem->fulfillment_status === 'fulfilled') {
+                $detail['subscription_id'] = $orderItem->microsoft_subscription_id;
+            } else {
+                $detail['error_message'] = $orderItem->fulfillment_error;
+            }
+
+            $formatted[] = $detail;
+        }
+
+        return $formatted;
+    }
+
+    /**
      * Send notification when products fail during individual processing
      */
     private function sendProductFailureNotification(Order $order, array $provisioningResults): void
     {
         try {
+            \Log::info("Sending product failure notification for Order {$order->id}");
+
             $notificationService = app(MicrosoftErrorNotificationService::class);
 
             // Get failed products details
@@ -801,5 +924,171 @@ class PartnerCenterProvisioningService
     private function countTotal(array $results): int
     {
         return count($results);
+    }
+
+    /**
+     * Retry failed or processing products for a specific order
+     */
+    public function retryFailedProducts(int $orderId): array
+    {
+        try {
+            // Get order with relationships
+            $order = Order::with([
+                'cart.items.product',
+                'microsoftAccount',
+                'orderItems'
+            ])->find($orderId);
+
+            if (!$order) {
+                throw new Exception("Order not found: {$orderId}");
+            }
+
+            // Check if we're in fake mode
+            if (config('services.microsoft.fake_mode', false)) {
+                return $this->retryFakeOrder($order);
+            }
+
+            if (!$order->cart) {
+                throw new Exception("Cart not found for order: {$orderId}");
+            }
+
+            if (!$order->microsoftAccount) {
+                throw new Exception("Microsoft account not found for order: {$orderId}");
+            }
+
+            $microsoftCustomerId = $order->microsoftAccount->microsoft_id;
+            if (!$microsoftCustomerId) {
+                throw new Exception("Microsoft customer ID not found for order: {$orderId}");
+            }
+
+            // Get order items that need retry (failed or processing)
+            $failedOrderItems = $order->orderItems()
+                ->whereIn('fulfillment_status', ['failed', 'processing'])
+                ->get();
+
+            if ($failedOrderItems->isEmpty()) {
+                return [
+                    'success' => true,
+                    'message' => 'No hay productos que requieran reintento - todos están exitosos',
+                    'order_id' => $orderId,
+                    'total_products' => $order->orderItems->count(),
+                    'retry_needed' => 0,
+                    'retry_results' => []
+                ];
+            }
+
+            // Get corresponding cart items for retry
+            $cartItemsToRetry = $order->cart->items()
+                ->with('product')
+                ->whereIn('id', $failedOrderItems->pluck('cart_item_id'))
+                ->where('status', 'active')
+                ->get();
+
+            if ($cartItemsToRetry->isEmpty()) {
+                throw new Exception("No active cart items found for retry");
+            }
+
+            // Get Microsoft access token
+            $token = $this->getMicrosoftToken();
+
+            // Process only the failed products individually
+            $retryResults = $this->processProductsIndividually($order, $cartItemsToRetry, $microsoftCustomerId, $token);
+
+            // Get all current order items to calculate overall status
+            $allOrderItems = $order->orderItems()->get();
+            $totalProducts = $allOrderItems->count();
+            $successfulProducts = $allOrderItems->where('fulfillment_status', 'fulfilled')->count();
+            $retriedProducts = collect($retryResults)->where('success', true)->count();
+
+            // Update order status based on ALL products (not just retried ones)
+            $this->updateOrderStatusAfterRetry($order, $totalProducts, $successfulProducts);
+
+            // Send notification only if there are still failures after retry
+            $stillFailedProducts = collect($retryResults)->where('success', false)->count();
+            if ($stillFailedProducts > 0) {
+                $this->sendProductFailureNotification($order, $retryResults);
+            }
+
+            return [
+                'success' => true,
+                'message' => $this->generateRetryMessage($cartItemsToRetry->count(), $retriedProducts, $totalProducts, $successfulProducts),
+                'order_id' => $orderId,
+                'order_status' => $order->fresh()->status,
+                'fulfillment_status' => $order->fresh()->fulfillment_status,
+                'total_products' => $totalProducts,
+                'products_retried' => $cartItemsToRetry->count(),
+                'retry_successful' => $retriedProducts,
+                'retry_failed' => $cartItemsToRetry->count() - $retriedProducts,
+                'overall_successful' => $successfulProducts,
+                'retry_results' => $retryResults
+            ];
+
+        } catch (Exception $e) {
+            // Only send error notification if not in fake mode
+            if (!config('services.microsoft.fake_mode', false)) {
+                $this->sendGeneralErrorNotification($order ?? null, $orderId, "Retry failed: " . $e->getMessage());
+            }
+
+            return [
+                'success' => false,
+                'message' => "Error al reintentar productos: " . $e->getMessage(),
+                'order_id' => $orderId
+            ];
+        }
+    }
+
+    /**
+     * Update order status after retry based on overall product status
+     */
+    private function updateOrderStatusAfterRetry(Order $order, int $totalProducts, int $successfulProducts): void
+    {
+        if ($successfulProducts === $totalProducts) {
+            // All products now successful - mark as completed
+            $order->update([
+                'status' => 'completed',
+                'fulfillment_status' => 'fulfilled'
+            ]);
+        } elseif ($successfulProducts > 0) {
+            // Some products still failed - keep as processing
+            $order->update([
+                'status' => 'processing',
+                'fulfillment_status' => 'partially_fulfilled'
+            ]);
+        } else {
+            // All products still failed
+            $order->update([
+                'status' => 'processing',
+                'fulfillment_status' => 'failed'
+            ]);
+        }
+    }
+
+    /**
+     * Generate message for retry results
+     */
+    private function generateRetryMessage(int $retriedCount, int $successfulRetries, int $totalProducts, int $overallSuccessful): string
+    {
+        if ($overallSuccessful === $totalProducts) {
+            return "✅ ¡Reintento exitoso! Todos los productos ({$totalProducts}) están ahora completados";
+        } elseif ($successfulRetries === $retriedCount) {
+            return "✅ Reintento completado: {$successfulRetries}/{$retriedCount} productos reintentados exitosamente. Total: {$overallSuccessful}/{$totalProducts}";
+        } elseif ($successfulRetries > 0) {
+            return "⚠️ Reintento parcial: {$successfulRetries}/{$retriedCount} productos reintentados exitosamente. Total: {$overallSuccessful}/{$totalProducts}";
+        } else {
+            return "❌ Reintento fallido: 0/{$retriedCount} productos exitosos en el reintento. Total: {$overallSuccessful}/{$totalProducts}";
+        }
+    }
+
+    /**
+     * Handle fake retry for testing
+     */
+    private function retryFakeOrder(Order $order): array
+    {
+        return [
+            'success' => true,
+            'message' => 'FAKE MODE: Retry simulado exitosamente',
+            'order_id' => $order->id,
+            'mode' => 'FAKE'
+        ];
     }
 }

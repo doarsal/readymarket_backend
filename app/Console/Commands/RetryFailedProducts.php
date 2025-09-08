@@ -54,24 +54,28 @@ class RetryFailedProducts extends Command
             return;
         }
 
-        $failedItems = $order->orderItems()
-                            ->where('fulfillment_status', 'failed')
-                            ->get();
+        // Get products that need retry (failed or processing)
+        $retryNeededItems = $order->orderItems()
+                                 ->whereIn('fulfillment_status', ['failed', 'processing'])
+                                 ->get();
 
-        if ($failedItems->isEmpty()) {
-            $this->info("✅ No failed products found in order {$orderId}");
+        if ($retryNeededItems->isEmpty()) {
+            $this->info("✅ No products need retry in order {$orderId} - all are fulfilled or pending");
+            $this->showOrderSummary($order);
             return;
         }
 
-        $this->info("📦 Order {$order->order_number}: Found {$failedItems->count()} failed products");
+        $this->info("📦 Order {$order->order_number}: Found {$retryNeededItems->count()} products that need retry");
 
         if ($dryRun) {
+            $this->info("🔍 DRY RUN - Would retry these products:");
             $this->table(
-                ['Product Title', 'SKU ID', 'Error', 'Failed At'],
-                $failedItems->map(function ($item) {
+                ['Product Title', 'SKU ID', 'Status', 'Error', 'Last Updated'],
+                $retryNeededItems->map(function ($item) {
                     return [
-                        $item->product_title,
-                        $item->sku_id,
+                        $item->product_title ?? 'N/A',
+                        $item->sku_id ?? 'N/A',
+                        $item->fulfillment_status,
                         substr($item->fulfillment_error ?? 'No error message', 0, 50) . '...',
                         $item->updated_at->format('Y-m-d H:i:s')
                     ];
@@ -80,8 +84,84 @@ class RetryFailedProducts extends Command
             return;
         }
 
-        // Retry provisioning for this order
-        $this->retryOrderProvisioning($order);
+        // Confirm before retrying
+        if (!$this->confirm("🔄 Do you want to retry {$retryNeededItems->count()} products for order {$order->order_number}?")) {
+            $this->info("⏭️ Retry cancelled");
+            return;
+        }
+
+        $this->info("🚀 Starting retry process...");
+
+        // Use the intelligent processOrder method that only processes failed/pending products
+        $provisioningService = new PartnerCenterProvisioningService();
+        $result = $provisioningService->processOrder($orderId);
+
+        // Display results
+        $this->newLine();
+        if ($result['success']) {
+            $this->info("✅ " . $result['message']);
+        } else {
+            $this->warn("⚠️ " . $result['message']);
+        }
+
+        $this->newLine();
+        $this->info("📊 PROCESSING SUMMARY:");
+        $this->info("====================");
+        $this->info("Total products in order: " . $result['total_products']);
+        $this->info("Overall successful: " . $result['successful_products']);
+        $this->info("Overall failed: " . $result['failed_products']);
+        $this->info("Processed this run: " . ($result['products_processed_this_run'] ?? 0));
+        $this->info("Successful this run: " . ($result['products_successful_this_run'] ?? 0));
+        $this->info("Order status: " . $result['order_status']);
+        $this->info("Fulfillment status: " . $result['fulfillment_status']);
+
+        // Show detailed results if there were any products processed
+        if (isset($result['product_details']) && !empty($result['product_details'])) {
+            $this->newLine();
+            $this->info("📋 PRODUCT DETAILS:");
+            $this->info("===================");
+
+            foreach ($result['product_details'] as $index => $product) {
+                $status = $product['status'] === 'success' ? '✅ SUCCESS' : '❌ FAILED';
+                $this->info(($index + 1) . ". {$product['product_title']} - {$status}");
+
+                if ($product['status'] !== 'success' && !empty($product['error_message'])) {
+                    $this->warn("   Error: " . $product['error_message']);
+                }
+            }
+        }
+
+        // Suggest next actions
+        if ($result['successful_products'] < $result['total_products']) {
+            $this->newLine();
+            $this->warn("⚠️ Some products still need attention. You can run this command again to retry.");
+            $this->info("💡 Commands:");
+            $this->info("   - Retry again: php artisan products:retry-failed --order-id={$orderId}");
+            $this->info("   - Check details: php artisan order:details {$orderId}");
+        } else {
+            $this->newLine();
+            $this->info("🎉 All products are now successfully fulfilled!");
+        }
+    }
+
+    /**
+     * Show order summary
+     */
+    private function showOrderSummary(Order $order)
+    {
+        $totalItems = $order->orderItems->count();
+        $fulfilledItems = $order->orderItems->where('fulfillment_status', 'fulfilled')->count();
+        $failedItems = $order->orderItems->where('fulfillment_status', 'failed')->count();
+        $processingItems = $order->orderItems->where('fulfillment_status', 'processing')->count();
+        $pendingItems = $order->orderItems->where('fulfillment_status', 'pending')->count();
+
+        $this->newLine();
+        $this->info("📊 Current Order Status:");
+        $this->info("Total products: {$totalItems}");
+        $this->info("✅ Fulfilled: {$fulfilledItems}");
+        $this->info("❌ Failed: {$failedItems}");
+        $this->info("🔄 Processing: {$processingItems}");
+        $this->info("⏳ Pending: {$pendingItems}");
     }
 
     private function retryRecentFailedProducts($hours, $dryRun)
