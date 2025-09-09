@@ -17,11 +17,23 @@ class CartService
     {
         $user = auth()->guard('sanctum')->user();
 
+        Log::info('CartService: getOrCreateCart called', [
+            'user_id' => $user?->id,
+            'is_authenticated' => $user !== null,
+            'cart_token_header' => request()->header('X-Cart-Token')
+        ]);
+
         if ($user) {
             // Usuario autenticado: buscar por user_id
             $cart = Cart::where('user_id', $user->id)
                        ->where('status', 'active')
                        ->first();
+
+            Log::info('CartService: User authenticated, cart search result', [
+                'user_id' => $user->id,
+                'cart_found' => $cart !== null,
+                'cart_id' => $cart?->id
+            ]);
 
             if (!$cart) {
                 // Crear carrito para usuario autenticado
@@ -31,28 +43,56 @@ class CartService
                     'status' => 'active',
                     'expires_at' => now()->addDays(30),
                 ]);
+
+                Log::info('CartService: Created new cart for authenticated user', [
+                    'cart_id' => $cart->id,
+                    'cart_token' => $cart->cart_token
+                ]);
             }
         } else {
             // Usuario invitado: usar cart_token
             $cartToken = request()->header('X-Cart-Token');
+
+            Log::info('CartService: Guest user, checking for existing cart', [
+                'cart_token' => $cartToken
+            ]);
 
             if ($cartToken) {
                 $cart = Cart::where('cart_token', $cartToken)
                            ->where('status', 'active')
                            ->whereNull('user_id')
                            ->first();
+
+                Log::info('CartService: Guest cart search result', [
+                    'cart_token' => $cartToken,
+                    'cart_found' => $cart !== null,
+                    'cart_id' => $cart?->id
+                ]);
             }
 
             if (!isset($cart) || !$cart) {
                 // Crear carrito para invitado
+                $newCartToken = Str::random(32);
                 $cart = Cart::create([
                     'user_id' => null,
-                    'cart_token' => Str::random(32),
+                    'cart_token' => $newCartToken,
                     'status' => 'active',
                     'expires_at' => now()->addDays(7),
                 ]);
+
+                Log::info('CartService: Created new cart for guest user', [
+                    'cart_id' => $cart->id,
+                    'cart_token' => $cart->cart_token,
+                    'new_token' => $newCartToken
+                ]);
             }
         }
+
+        Log::info('CartService: Returning cart', [
+            'cart_id' => $cart->id,
+            'cart_token' => $cart->cart_token,
+            'user_id' => $cart->user_id
+        ]);
 
         return $cart;
     }
@@ -187,11 +227,11 @@ class CartService
     }
 
     /**
-     * Get cart summary WITHOUT creating cart (for display purposes)
+     * Get cart summary - CREAR carrito si no existe para usuarios invitados
      */
     public function getCartSummary(): array
     {
-        $cart = $this->getExistingCart();
+        $cart = $this->getOrCreateCart(); // CAMBIO: usar getOrCreateCart en lugar de getExistingCart
 
         if (!$cart) {
             return [
