@@ -90,9 +90,12 @@ class CurrencyService
             $currency->thousands_separator
         );
 
-        return $currency->symbol_position === 'before'
+        $baseFormatted = $currency->symbol_position === 'before'
             ? $currency->symbol . $formattedAmount
             : $formattedAmount . $currency->symbol;
+
+        // Agregar el código de moneda al final
+        return $baseFormatted . ' ' . $currency->code;
     }
 
     /**

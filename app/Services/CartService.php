@@ -30,9 +30,6 @@ class CartService
                     'cart_token' => Str::random(32),
                     'status' => 'active',
                     'expires_at' => now()->addDays(30),
-                    'subtotal' => 0.00,
-                    'tax_amount' => 0.00,
-                    'total_amount' => 0.00,
                 ]);
             }
         } else {
@@ -53,9 +50,6 @@ class CartService
                     'cart_token' => Str::random(32),
                     'status' => 'active',
                     'expires_at' => now()->addDays(7),
-                    'subtotal' => 0.00,
-                    'tax_amount' => 0.00,
-                    'total_amount' => 0.00,
                 ]);
             }
         }
@@ -98,7 +92,7 @@ class CartService
         $cart = $this->getOrCreateCart();
         $product = Product::findOrFail($productId);
 
-        // Obtener el precio correcto del producto
+        // Verificar que el producto tiene precio válido
         $unitPrice = $product->UnitPrice ? (float) str_replace(',', '', $product->UnitPrice) : 0;
 
         if ($unitPrice <= 0) {
@@ -112,24 +106,20 @@ class CartService
                                ->first();
 
         if ($existingItem) {
-            // Actualizar cantidad
+            // Actualizar cantidad únicamente
             $existingItem->quantity += $quantity;
-            $existingItem->total_price = $existingItem->quantity * $existingItem->unit_price;
             $existingItem->save();
             $cartItem = $existingItem;
         } else {
-            // Crear nuevo item
+            // Crear nuevo item SIN precios almacenados
             $cartItem = CartItem::create([
                 'cart_id' => $cart->id,
                 'product_id' => $productId,
                 'quantity' => $quantity,
-                'unit_price' => $unitPrice,
-                'total_price' => $quantity * $unitPrice,
                 'status' => 'active',
             ]);
         }
 
-        $this->updateCartTotals($cart);
         return $cartItem;
     }
 
@@ -146,7 +136,6 @@ class CartService
 
         if ($cartItem) {
             $cartItem->delete();
-            $this->updateCartTotals($cart);
             return true;
         }
 
@@ -158,7 +147,6 @@ class CartService
      */
     public function updateItemQuantity(int $cartItemId, int $quantity): bool
     {
-        // Optimización: buscar directamente el item sin getOrCreateCart()
         $cartItem = CartItem::with('cart')->find($cartItemId);
 
         if ($cartItem) {
@@ -166,11 +154,8 @@ class CartService
                 $cartItem->delete();
             } else {
                 $cartItem->quantity = $quantity;
-                $cartItem->total_price = $quantity * $cartItem->unit_price;
                 $cartItem->save();
             }
-
-            $this->updateCartTotals($cartItem->cart);
             return true;
         }
 
@@ -183,10 +168,7 @@ class CartService
     public function clearCart(): bool
     {
         $cart = $this->getOrCreateCart();
-
         CartItem::where('cart_id', $cart->id)->delete();
-        $this->updateCartTotals($cart);
-
         return true;
     }
 
@@ -217,33 +199,42 @@ class CartService
                 'items_count' => 0,
                 'subtotal' => 0.00,
                 'total_amount' => 0.00,
+                'currency_code' => $this->getStoreCurrencyCode(),
                 'items' => []
             ];
         }
 
         $cart->load(['items.product']);
 
+        // Usar los accessors del modelo que calculan dinámicamente
         return [
             'exists' => true,
             'cart_id' => $cart->id,
             'user_id' => $cart->user_id,
             'cart_token' => $cart->cart_token,
             'items_count' => $cart->items->where('status', 'active')->sum('quantity'),
-            'subtotal' => $cart->subtotal,
-            'total_amount' => $cart->total_amount,
+            'subtotal' => $cart->subtotal, // Esto usa el accessor dinámico
+            'total_amount' => $cart->total_amount, // Esto usa el accessor dinámico
+            'currency_code' => $this->getStoreCurrencyCode(),
             'items' => $cart->items->where('status', 'active')->map(function($item) {
                 return [
                     'id' => $item->id,
                     'product_id' => $item->product_id,
                     'quantity' => $item->quantity,
-                    'unit_price' => number_format($item->unit_price, 2),
-                    'total_price' => number_format($item->total_price, 2),
+                    'unit_price' => number_format($item->unit_price, 2), // Accessor dinámico
+                    'total_price' => number_format($item->total_price, 2), // Accessor dinámico
+                    'currency_code' => $this->getStoreCurrencyCode(),
                     'product' => $item->product ? [
                         'id' => $item->product->idproduct,
                         'title' => $item->product->ProductTitle,
                         'sku_title' => $item->product->SkuTitle,
                         'publisher' => $item->product->Publisher,
                         'icon' => $item->product->prod_icon,
+                        'unit_price_usd' => $item->product->UnitPrice, // Precio original en USD para referencia
+                        'erp_price_usd' => $item->product->ERPPrice, // Precio ERP original para referencia
+                        'currency_original' => $item->product->Currency ?? 'USD',
+                        'billing_plan' => $item->product->BillingPlan,
+                        'term_duration' => $item->product->TermDuration,
                     ] : null
                 ];
             })->values()
@@ -251,20 +242,23 @@ class CartService
     }
 
     /**
-     * Update cart totals
+     * Get store currency code - método helper
+     */
+    private function getStoreCurrencyCode(): string
+    {
+        $storeId = config('app.store_id', 1);
+        $currencyService = app(\App\Services\CurrencyService::class);
+        $storeCurrency = $currencyService->getStoreCurrency($storeId);
+
+        return $storeCurrency ? $storeCurrency->code : 'MXN';
+    }
+
+    /**
+     * Update cart totals (YA NO HACE NADA - mantener para compatibilidad)
      */
     protected function updateCartTotals(Cart $cart): void
     {
-        $subtotal = CartItem::where('cart_id', $cart->id)->sum('total_price');
-        $taxRate = config('facturalo.taxes.iva.rate');
-        $taxAmount = $subtotal * $taxRate;
-        $total = $subtotal + $taxAmount;
-
-        $cart->update([
-            'subtotal' => $subtotal,
-            'tax_amount' => $taxAmount,
-            'total_amount' => $total,
-        ]);
+        // Método vacío - los totales se calculan dinámicamente ahora
     }
 
     /**
@@ -356,7 +350,6 @@ class CartService
                 if ($existingUserItem) {
                     // Sumar cantidades si el producto ya existe
                     $existingUserItem->quantity += $guestItem->quantity;
-                    $existingUserItem->total_price = $existingUserItem->quantity * $existingUserItem->unit_price;
                     $existingUserItem->save();
 
                     // Eliminar item del carrito invitado
@@ -370,7 +363,6 @@ class CartService
 
             // Eliminar carrito invitado vacío
             $guestCart->delete();
-            $this->updateCartTotals($userCart);
 
             return $userCart;
         }
@@ -408,9 +400,6 @@ class CartService
             'cart_token' => Str::random(32),
             'status' => 'active',
             'expires_at' => now()->addDays(30),
-            'subtotal' => 0.00,
-            'tax_amount' => 0.00,
-            'total_amount' => 0.00,
         ]);
     }
 
@@ -442,7 +431,6 @@ class CartService
                     if ($existingItem) {
                         // Sumar cantidades
                         $existingItem->quantity += $item->quantity;
-                        $existingItem->total_price = $existingItem->quantity * $existingItem->unit_price;
                         $existingItem->save();
 
                         $item->delete();
@@ -456,8 +444,6 @@ class CartService
                 // Eliminar carrito vacío
                 $oldCart->delete();
             }
-
-            $this->updateCartTotals($keepCart);
         }
     }
 }

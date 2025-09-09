@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AddToCartRequest;
 use App\Http\Requests\UpdateCartItemRequest;
+use App\Http\Traits\HasCurrencyConversion;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Services\CartService;
@@ -20,11 +21,27 @@ use Illuminate\Support\Facades\Log;
  */
 class CartController extends Controller
 {
+    use HasCurrencyConversion;
+
     protected CartService $cartService;
 
     public function __construct(CartService $cartService)
     {
         $this->cartService = $cartService;
+    }
+
+    /**
+     * Obtener código de moneda de la tienda
+     */
+    protected function getStoreCurrencyCode(): string
+    {
+        $storeId = $this->getStoreId();
+        $currencyService = $this->getCurrencyService();
+
+        // Obtener la moneda por defecto de la tienda
+        $storeCurrency = $currencyService->getStoreCurrency($storeId);
+
+        return $storeCurrency ? $storeCurrency->code : 'MXN'; // Fallback a MXN
     }
 
     /**
@@ -64,6 +81,7 @@ class CartController extends Controller
             // Usar getCartSummary para no crear carritos innecesarios
             $cartSummary = $this->cartService->getCartSummary();
             $taxRate = config('facturalo.taxes.iva.rate');
+            $currencyCode = $this->getStoreCurrencyCode();
 
             return response()->json([
                 'success' => true,
@@ -73,7 +91,7 @@ class CartController extends Controller
                     'subtotal' => number_format($cartSummary['subtotal'], 2),
                     'tax_amount' => number_format($cartSummary['subtotal'] * $taxRate, 2),
                     'total_amount' => number_format($cartSummary['total_amount'], 2),
-                    'currency_code' => 'MXN',
+                    'currency_code' => $currencyCode,
                     'status' => $cartSummary['exists'] ? 'active' : 'empty',
                     'cart_token' => $cartSummary['exists'] ? $cartSummary['cart_token'] : null,
                 ],
@@ -170,14 +188,15 @@ class CartController extends Controller
                                     'description' => $item->product->SkuDescription,
                                     'publisher' => $item->product->Publisher,
                                     'icon' => $item->product->prod_icon,
-                                    'currency' => $item->product->Currency,
+                                    'currency' => 'MXN', // Siempre MXN ya que los precios están convertidos
+                                    'original_currency' => $item->product->Currency, // USD original para referencia
                                 ] : null
                             ];
                         })->values(),
                         'subtotal' => number_format($cart->subtotal ?? 0, 2),
                         'tax_amount' => number_format($cart->tax_amount ?? 0, 2),
                         'total_amount' => number_format($cart->total_amount ?? 0, 2),
-                        'currency_code' => 'MXN',
+                        'currency_code' => $this->getStoreCurrencyCode(),
                         'status' => $cart->status,
                         'cart_token' => $cart->cart_token,
                     ]
@@ -289,7 +308,7 @@ class CartController extends Controller
                             'subtotal' => number_format($cart->subtotal ?? 0, 2),
                             'tax_amount' => number_format($cart->tax_amount ?? 0, 2),
                             'total_amount' => number_format($cart->total_amount ?? 0, 2),
-                            'currency_code' => 'MXN',
+                            'currency_code' => $this->getStoreCurrencyCode(),
                             'status' => $cart->status,
                             'cart_token' => $cart->cart_token,
                         ]
@@ -381,7 +400,7 @@ class CartController extends Controller
                             'subtotal' => number_format($cart->subtotal ?? 0, 2),
                             'tax_amount' => number_format($cart->tax_amount ?? 0, 2),
                             'total_amount' => number_format($cart->total_amount ?? 0, 2),
-                            'currency_code' => 'MXN',
+                            'currency_code' => $this->getStoreCurrencyCode(),
                             'status' => $cart->status,
                             'cart_token' => $cart->cart_token,
                         ]

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ExchangeRate;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
@@ -13,6 +14,52 @@ use Illuminate\Validation\Rule;
 
 class CategoryController extends Controller
 {
+    /**
+     * Get current store currency code
+     */
+    private function getStoreCurrencyCode(): string
+    {
+        $storeId = config('app.store_id', 1);
+        $store = \App\Models\Store::find($storeId);
+
+        if (!$store) {
+            return 'MXN'; // Fallback
+        }
+
+        $defaultCurrency = $store->getDefaultCurrency();
+        return $defaultCurrency ? $defaultCurrency->code : 'MXN';
+    }
+
+    /**
+     * Convert currency amount from USD to store currency
+     */
+    private function convertCurrency(float $amount, string $fromCurrency, string $toCurrency): float
+    {
+        if ($fromCurrency === $toCurrency) {
+            return $amount;
+        }
+
+        // Obtener IDs de las monedas
+        $fromCurrencyModel = \App\Models\Currency::where('code', $fromCurrency)->first();
+        $toCurrencyModel = \App\Models\Currency::where('code', $toCurrency)->first();
+
+        if (!$fromCurrencyModel || !$toCurrencyModel) {
+            return $amount; // No se puede convertir
+        }
+
+        // Obtener tipo de cambio
+        $exchangeRate = ExchangeRate::where('from_currency_id', $fromCurrencyModel->id)
+            ->where('to_currency_id', $toCurrencyModel->id)
+            ->where('is_active', true)
+            ->orderBy('date', 'desc')
+            ->first();
+
+        if (!$exchangeRate) {
+            return $amount; // No hay tipo de cambio disponible
+        }
+
+        return $amount * $exchangeRate->rate;
+    }
         /**
      * @OA\Get(
      *     path="/api/v1/categories",
@@ -468,6 +515,20 @@ class CategoryController extends Controller
 
         try {
             $products = $query->paginate($perPage);
+
+            // Procesar los productos para SOBREESCRIBIR los precios originales
+            $processedProducts = $products->getCollection()->map(function ($product) {
+                $convertedPrice = $this->convertCurrency((float)$product->UnitPrice, 'USD', $this->getStoreCurrencyCode());
+                $storeCurrencyCode = $this->getStoreCurrencyCode();
+
+                // SOBREESCRIBIR los campos que usa el frontend
+                $productArray = $product->toArray();
+                $productArray['UnitPrice'] = number_format($convertedPrice, 2); // El precio que usa el frontend
+                $productArray['Currency'] = $storeCurrencyCode; // La moneda que usa el frontend
+
+                return $productArray;
+            });            // Actualizar la colección de productos procesados
+            $products->setCollection($processedProducts);
 
             return response()->json([
                 'success' => true,

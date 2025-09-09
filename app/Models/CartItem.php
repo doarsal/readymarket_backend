@@ -33,35 +33,19 @@ class CartItem extends Model
         'cart_id',
         'product_id',
         'quantity',
-        'unit_price',
-        'total_price',
         'metadata',
         'status',
     ];
 
     protected $casts = [
         'quantity' => 'integer',
-        'unit_price' => 'decimal:2',
-        'total_price' => 'decimal:2',
         'metadata' => 'array',
     ];
 
     /**
-     * Boot method para actualizar totales automáticamente
+     * Appends para compatibilidad con frontend
      */
-    protected static function boot()
-    {
-        parent::boot();
-
-        // Actualizar totales del carrito cuando se modifica un item
-        static::saved(function ($cartItem) {
-            $cartItem->cart->updateTotals();
-        });
-
-        static::deleted(function ($cartItem) {
-            $cartItem->cart->updateTotals();
-        });
-    }
+    protected $appends = ['unit_price', 'total_price'];
 
     /**
      * Relación con el carrito
@@ -93,25 +77,106 @@ class CartItem extends Model
     }
 
     /**
-     * Actualizar cantidad y recalcular precio total
+     * Obtener precio unitario dinámico del producto convertido a la moneda de la tienda
      */
-    public function updateQuantity(int $quantity): void
+    public function getUnitPriceAttribute(): float
     {
-        $this->update([
-            'quantity' => $quantity,
-            'total_price' => $quantity * $this->unit_price,
-        ]);
+        if (!$this->product) {
+            return 0.0;
+        }
+
+        // Usar el CurrencyService para obtener precios consistentes
+        $currencyService = app(\App\Services\CurrencyService::class);
+        $storeId = config('app.store_id', 1);
+
+        try {
+            $priceInfo = $currencyService->getProductPrice($this->product, $storeId);
+            return (float) $priceInfo['amount'];
+        } catch (\Exception $e) {
+            \Log::error('Error calculating cart item unit price', [
+                'cart_item_id' => $this->id,
+                'product_id' => $this->product_id,
+                'error' => $e->getMessage()
+            ]);
+
+            // Fallback a cálculo manual
+            return $this->calculateFallbackPrice();
+        }
     }
 
     /**
-     * Actualizar precio unitario y recalcular total
+     * Método fallback para calcular precio si falla el CurrencyService
      */
-    public function updatePrice(float $unitPrice): void
+    private function calculateFallbackPrice(): float
     {
-        $this->update([
-            'unit_price' => $unitPrice,
-            'total_price' => $this->quantity * $unitPrice,
-        ]);
+        if (!$this->product) {
+            return 0.0;
+        }
+
+        // Obtener precio del producto en USD
+        $erpPrice = $this->product->ERPPrice ? (float) str_replace(',', '', $this->product->ERPPrice) : 0;
+        $unitPrice = $this->product->UnitPrice ? (float) str_replace(',', '', $this->product->UnitPrice) : 0;
+
+        $unitPriceUSD = $erpPrice > 0 ? $erpPrice : $unitPrice;
+
+        if ($unitPriceUSD <= 0) {
+            return 0.0;
+        }
+
+        // Obtener tipo de cambio actual usando el mismo método que en CurrencyService
+        $exchangeRate = $this->getCurrentExchangeRate();
+
+        return round($unitPriceUSD * $exchangeRate, 2);
+    }
+
+    /**
+     * Obtener precio total dinámico (cantidad * precio unitario)
+     */
+    public function getTotalPriceAttribute(): float
+    {
+        return round($this->quantity * $this->unit_price, 2);
+    }
+
+    /**
+     * Obtener tipo de cambio actual USD -> Moneda de la tienda
+     * Usa el mismo servicio que el resto del sistema para garantizar consistencia
+     */
+    protected function getCurrentExchangeRate(): float
+    {
+        try {
+            $currencyService = app(\App\Services\CurrencyService::class);
+            $storeId = config('app.store_id', 1);
+
+            // Obtener moneda de la tienda
+            $storeCurrency = $currencyService->getStoreCurrency($storeId);
+            if (!$storeCurrency) {
+                return 18.50; // Fallback
+            }
+
+            // Obtener moneda USD
+            $usdCurrency = $currencyService->getCurrencyByCode('USD');
+            if (!$usdCurrency) {
+                return 18.50; // Fallback
+            }
+
+            // Si la moneda de la tienda es USD, no hay conversión
+            if ($storeCurrency->code === 'USD') {
+                return 1.0;
+            }
+
+            // Usar el servicio de conversión
+            $converted = $currencyService->convertAmount(1.0, $usdCurrency->id, $storeCurrency->id);
+
+            return $converted > 0 ? $converted : 18.50; // Fallback si la conversión falla
+
+        } catch (\Exception $e) {
+            \Log::error('Error getting exchange rate for cart item', [
+                'cart_item_id' => $this->id ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            return 18.50; // Fallback seguro
+        }
     }
 
     /**
@@ -131,19 +196,11 @@ class CartItem extends Model
     }
 
     /**
-     * Obtener el precio total formateado
+     * Actualizar cantidad únicamente
      */
-    public function getFormattedTotalAttribute(): string
+    public function updateQuantity(int $quantity): void
     {
-        return number_format($this->total_price, 2);
-    }
-
-    /**
-     * Obtener el precio unitario formateado
-     */
-    public function getFormattedUnitPriceAttribute(): string
-    {
-        return number_format($this->unit_price, 2);
+        $this->update(['quantity' => $quantity]);
     }
 
     /**

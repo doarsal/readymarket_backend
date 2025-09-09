@@ -41,19 +41,18 @@ class Cart extends Model
         'currency_id',
         'status',
         'expires_at',
-        'subtotal',
-        'tax_amount',
-        'total_amount',
         'metadata',
     ];
 
     protected $casts = [
         'expires_at' => 'datetime',
-        'subtotal' => 'decimal:2',
-        'tax_amount' => 'decimal:2',
-        'total_amount' => 'decimal:2',
         'metadata' => 'array',
     ];
+
+    /**
+     * Appends para compatibilidad con frontend
+     */
+    protected $appends = ['subtotal', 'tax_amount', 'total_amount'];
 
     /**
      * Relación con el usuario propietario del carrito
@@ -128,44 +127,57 @@ class Cart extends Model
     }
 
     /**
-     * Calcular totales del carrito
+     * Calcular subtotal dinámico
+     */
+    public function getSubtotalAttribute(): float
+    {
+        return round($this->activeItems->sum(function($item) {
+            return $item->total_price; // Usa el accessor dinámico del CartItem
+        }), 2);
+    }
+
+    /**
+     * Calcular tax amount dinámico
+     */
+    public function getTaxAmountAttribute(): float
+    {
+        $taxRate = config('facturalo.taxes.iva.rate', 0.16);
+        return round($this->subtotal * $taxRate, 2);
+    }
+
+    /**
+     * Calcular total amount dinámico
+     */
+    public function getTotalAmountAttribute(): float
+    {
+        return round($this->subtotal + $this->tax_amount, 2);
+    }
+
+    /**
+     * Calcular totales del carrito (mantener para compatibilidad)
      */
     public function calculateTotals(): array
     {
-        $subtotal = $this->activeItems()->sum('total_price');
-
-        // Obtener tax rate desde store_configurations
-        $taxRate = StoreConfiguration::get(
-            $this->store_id,
-            'tax',
-            'rate',
-            0.16 // 16% IVA México como fallback
-        );
-
-        $taxAmount = $subtotal * $taxRate;
-        $total = $subtotal + $taxAmount;
+        $subtotal = $this->subtotal;
+        $taxAmount = $this->tax_amount;
+        $totalAmount = $this->total_amount;
 
         return [
-            'subtotal' => round($subtotal, 2),
-            'tax_amount' => round($taxAmount, 2),
-            'tax_rate' => $taxRate,
-            'total_amount' => round($total, 2),
-            'items_count' => $this->activeItems()->sum('quantity'),
+            'subtotal' => $subtotal,
+            'tax_amount' => $taxAmount,
+            'tax_rate' => config('facturalo.taxes.iva.rate', 0.16),
+            'total_amount' => $totalAmount,
+            'items_count' => $this->activeItems->sum('quantity'),
         ];
     }
 
     /**
-     * Actualizar totales en la base de datos
+     * Actualizar totales en la base de datos (YA NO HACE NADA, mantener para compatibilidad)
      */
     public function updateTotals(): void
     {
-        $totals = $this->calculateTotals();
-
-        $this->update([
-            'subtotal' => $totals['subtotal'],
-            'tax_amount' => $totals['tax_amount'],
-            'total_amount' => $totals['total_amount'],
-        ]);
+        // Método vacío para mantener compatibilidad con código existente
+        // Los totales ahora se calculan dinámicamente
     }
 
     /**

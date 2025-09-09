@@ -41,7 +41,9 @@ class CartItemResource extends JsonResource
                     'unit_price' => number_format($this->product->UnitPrice, 2),
                     'currency' => $this->product->Currency,
                     'icon' => $this->product->prod_icon,
-                                        'category_id' => $this->product->category_id,
+                    'category_id' => $this->product->category_id,
+                    'billing_plan' => $this->product->BillingPlan,
+                    'term_duration' => $this->product->TermDuration,
                 ];
             }),
         ];
