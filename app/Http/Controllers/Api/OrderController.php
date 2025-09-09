@@ -49,7 +49,7 @@ class OrderController extends Controller
         $user = Auth::user();
 
         $query = Order::where('user_id', $user->id)
-                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'orderItems', 'invoice', 'paymentResponse'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'orderItems', 'invoice', 'paymentResponse', 'currency'])
                      ->orderBy('created_at', 'desc');
 
         if ($request->has('status')) {
@@ -112,7 +112,7 @@ class OrderController extends Controller
         // Find the cart
         $cart = Cart::where('cart_token', $request->cart_token)
                    ->where('user_id', $user->id)
-                   ->with(['items.product', 'store'])
+                   ->with(['items.product', 'store.currencies'])
                    ->first();
 
         if (!$cart) {
@@ -166,7 +166,7 @@ class OrderController extends Controller
             DB::commit();
 
             // Load the order with relationships
-            $order->load(['items.product', 'store', 'user', 'billingInformation']);
+            $order->load(['items.product', 'store', 'user', 'billingInformation', 'currency']);
 
             return response()->json([
                 'success' => true,
@@ -210,7 +210,7 @@ class OrderController extends Controller
 
         $order = Order::where('id', $id)
                      ->where('user_id', $user->id)
-                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'microsoftAccount', 'paymentResponse'])
+                     ->with(['items.product', 'store', 'billingInformation.taxRegime', 'billingInformation.cfdiUsage', 'microsoftAccount', 'paymentResponse', 'currency'])
                      ->first();
 
         if (!$order) {

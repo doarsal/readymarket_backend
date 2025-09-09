@@ -329,8 +329,9 @@ class Order extends Model
      */
     public static function createFromCart(Cart $cart, array $orderData = []): self
     {
-        // Obtener la moneda de la tienda o USD por defecto
-        $currencyId = $cart->store->default_currency_id ?? 1; // USD por defecto
+        // Obtener la moneda por defecto de la tienda
+        $defaultCurrency = $cart->store->currencies()->wherePivot('is_default', true)->first();
+        $currencyId = $defaultCurrency ? $defaultCurrency->id : 1; // USD por defecto si no se encuentra
 
         // Obtener el tipo de cambio actual si no es USD
         $exchangeRate = 1.0;

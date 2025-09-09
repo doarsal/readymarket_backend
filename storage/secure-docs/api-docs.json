@@ -4526,7 +4526,7 @@
                     "Microsoft Accounts"
                 ],
                 "summary": "Check domain availability",
-                "description": "Check if domain is available for current user",
+                "description": "Check if domain is available globally (not user-specific)",
                 "operationId": "de0ab7fda24b1be7b27bb05e80c6d27d",
                 "requestBody": {
                     "required": true,
@@ -5351,6 +5351,32 @@
                 "responses": {
                     "200": {
                         "description": "Order tracking information retrieved successfully"
+                    }
+                }
+            }
+        },
+        "/api/v1/orders/{orderNumber}/payment-details": {
+            "get": {
+                "tags": [
+                    "Orders"
+                ],
+                "summary": "Get order payment details",
+                "description": "Returns detailed payment information for an order by order number",
+                "operationId": "fd5cedbc1526705d2e91ff2e8a853119",
+                "parameters": [
+                    {
+                        "name": "orderNumber",
+                        "in": "path",
+                        "description": "Order number",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Payment details retrieved successfully"
                     }
                 }
             }
