@@ -13,6 +13,13 @@
         {
             "url": "http://localhost:8000",
             "description": "Development server"
+        },
+        {
+            "url": "https://readymarket-backend.readymind.mx",
+            "description": "Production server"
+        },
+        {
+            "url": ""
         }
     ],
     "paths": {
@@ -8336,7 +8343,7 @@
                     "Products"
                 ],
                 "summary": "Get slide products",
-                "description": "Returns cached list of products marked for slide display",
+                "description": "Returns random list of products marked for slide display",
                 "operationId": "9373e4338bf90bc2c9a598aade083866",
                 "parameters": [
                     {

@@ -20,6 +20,11 @@ use App\Http\Controllers\Controller;
  *     description="Development server"
  * )
  *
+ * @OA\Server(
+ *     url="https://readymarket-backend.readymind.mx",
+ *     description="Production server"
+ * )
+ *
  * @OA\SecurityScheme(
  *     securityScheme="bearerAuth",
  *     type="http",
