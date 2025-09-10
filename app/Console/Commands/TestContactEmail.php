@@ -47,6 +47,7 @@ class TestContactEmail extends Command
         $data = [
             'name' => 'Test User',
             'email' => 'test@example.com',
+            'phone' => '12345678',
             'subject' => 'Test Contact Form',
             'message' => 'This is a test message from the contact form.'
         ];

@@ -88,6 +88,11 @@
             </div>
 
             <div class="field">
+                <span class="field-label">Teléfono:</span>
+                <span class="field-value">{{ $phone }}</span>
+            </div>
+
+            <div class="field">
                 <span class="field-label">Asunto:</span>
                 <span class="field-value">{{ $subject }}</span>
             </div>

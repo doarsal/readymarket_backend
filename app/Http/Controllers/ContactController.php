@@ -21,6 +21,7 @@ class ContactController extends Controller
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:255',
                 'email' => 'required|email|max:255',
+                'phone' => 'required|string|regex:/^[0-9]+$/|min:8|max:15',
                 'subject' => 'required|string|max:255',
                 'message' => 'required|string|max:5000',
             ], [
@@ -29,6 +30,10 @@ class ContactController extends Controller
                 'email.required' => 'El correo electrónico es obligatorio.',
                 'email.email' => 'El correo electrónico debe tener un formato válido.',
                 'email.max' => 'El correo electrónico no puede exceder 255 caracteres.',
+                'phone.required' => 'El teléfono es obligatorio.',
+                'phone.regex' => 'El teléfono debe contener solo números.',
+                'phone.min' => 'El teléfono debe tener al menos 8 dígitos.',
+                'phone.max' => 'El teléfono no puede exceder 15 dígitos.',
                 'subject.required' => 'El asunto es obligatorio.',
                 'subject.max' => 'El asunto no puede exceder 255 caracteres.',
                 'message.required' => 'El mensaje es obligatorio.',
@@ -49,6 +54,7 @@ class ContactController extends Controller
             $contactMessage = ContactMessage::create([
                 'name' => $data['name'],
                 'email' => $data['email'],
+                'phone' => $data['phone'],
                 'subject' => $data['subject'],
                 'message' => $data['message'],
                 'metadata' => [
