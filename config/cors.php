@@ -35,8 +35,9 @@ return [
         'http://localhost:80',
         'http://127.0.0.1',
         'http://127.0.0.1:80',
-        // Agrega aquí tus dominios de producción cuando sea necesario
-        // 'https://tu-dominio-produccion.com',
+        // URLs de producción
+        'https://readymarket.readymind.mx',  // Frontend de producción
+        'https://readymarket-backend.readymind.mx',  // Backend de producción
     ],
 
     'allowed_origins_patterns' => [],
