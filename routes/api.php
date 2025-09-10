@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\PaymentCardController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\MitecPaymentController;
 use App\Http\Controllers\Api\CfdiUsageController;
+use App\Http\Controllers\ContactController;
 
 /*
 |--------------------------------------------------------------------------
@@ -75,6 +76,9 @@ Route::prefix('v1')->group(function () {
     Route::get('categories/menu', [CategoryController::class, 'menu']);
     Route::get('categories/{category}', [CategoryController::class, 'show']);
     Route::get('categories/{category}/products', [CategoryController::class, 'products']);
+
+    // Contact form route
+    Route::post('contact', [ContactController::class, 'sendMessage']);
 
     // Product routes with currency middleware
     Route::middleware('currency')->group(function () {
