@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 
 /**
  * @OA\Info(
- *     title="ReadyMarket API",
+ *     title="Readymarket API RESTful",
  *     version="1.0.0",
  *     description="Complete REST API for Microsoft products marketplace. Includes products management, categories, users, MITEC payment processing, analytics, shopping cart and advanced authentication system.<br><br><strong>Developed by:</strong> Salvador Arturo Rodriguez Loera",
  *     @OA\Contact(

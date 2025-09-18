@@ -594,14 +594,224 @@ class AuthController extends Controller
     {
         $request->validate([
             'email' => 'required|email|exists:users,email',
+        ], [
+            'email.exists' => 'No encontramos una cuenta con este correo electrónico.'
         ]);
 
-        // TODO: Implement password reset functionality
-        // For now, just return success message
+        // Generate password reset token
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No encontramos una cuenta con este correo electrónico.'
+            ], 404);
+        }
+
+        // Create password reset token
+        $token = \Str::random(64);
+
+        // Store token in database
+        \DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $request->email],
+            [
+                'token' => \Hash::make($token),
+                'created_at' => now()
+            ]
+        );
+
+        // Send email using service
+        $emailService = new \App\Services\PasswordResetEmailService();
+        $emailSent = $emailService->sendPasswordResetEmail($user, $token);
+
+        // Log password reset request
+        \Log::info('Password reset requested', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'email_sent' => $emailSent,
+            'ip' => $request->ip(),
+            'user_agent' => $request->userAgent()
+        ]);
+
+        if ($emailSent) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Te hemos enviado un enlace de restablecimiento de contraseña a tu correo electrónico.'
+            ]);
+        } else {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al enviar el correo de recuperación. Por favor intenta de nuevo.'
+            ], 500);
+        }
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/auth/validate-reset-token",
+     *     tags={"Authentication"},
+     *     summary="Validate password reset token",
+     *     description="Validate password reset token and get user info",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"email","token"},
+     *             @OA\Property(property="email", type="string", format="email"),
+     *             @OA\Property(property="token", type="string")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Token is valid"
+     *     )
+     * )
+     */
+    public function validateResetToken(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => 'required|email|exists:users,email',
+            'token' => 'required|string',
+        ]);
+
+        // Find the password reset token
+        $resetToken = \DB::table('password_reset_tokens')
+            ->where('email', $request->email)
+            ->first();
+
+        if (!$resetToken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Token de restablecimiento no válido o expirado.'
+            ], 400);
+        }
+
+        // Check if token is valid (not expired - 60 minutes)
+        $tokenAge = now()->diffInMinutes($resetToken->created_at);
+        if ($tokenAge > 60) {
+            // Delete expired token
+            \DB::table('password_reset_tokens')
+                ->where('email', $request->email)
+                ->delete();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'El token de restablecimiento ha expirado. Solicita uno nuevo.'
+            ], 400);
+        }
+
+        // Verify token hash
+        if (!\Hash::check($request->token, $resetToken->token)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Token de restablecimiento no válido.'
+            ], 400);
+        }
+
+        // Get user info
+        $user = User::where('email', $request->email)->first();
 
         return response()->json([
             'success' => true,
-            'message' => 'Si el email existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.'
+            'message' => 'Token válido',
+            'data' => [
+                'user_name' => $user->first_name . ' ' . $user->last_name,
+                'user_email' => $user->email,
+                'token_expires_in_minutes' => 60 - $tokenAge
+            ]
+        ]);
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/auth/reset-password",
+     *     tags={"Authentication"},
+     *     summary="Reset password",
+     *     description="Reset user password using token",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"email","token","password","password_confirmation"},
+     *             @OA\Property(property="email", type="string", format="email"),
+     *             @OA\Property(property="token", type="string"),
+     *             @OA\Property(property="password", type="string", format="password"),
+     *             @OA\Property(property="password_confirmation", type="string", format="password")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Password reset successful"
+     *     )
+     * )
+     */
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => 'required|email|exists:users,email',
+            'token' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+        ], [
+            'email.exists' => 'No encontramos una cuenta con este correo electrónico.',
+            'password.min' => 'La contraseña debe tener al menos 8 caracteres.',
+            'password.confirmed' => 'La confirmación de contraseña no coincide.',
+        ]);
+
+        // Find the password reset token
+        $resetToken = \DB::table('password_reset_tokens')
+            ->where('email', $request->email)
+            ->first();
+
+        if (!$resetToken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Token de restablecimiento no válido o expirado.'
+            ], 400);
+        }
+
+        // Check if token is valid (not expired - 60 minutes)
+        $tokenAge = now()->diffInMinutes($resetToken->created_at);
+        if ($tokenAge > 60) {
+            // Delete expired token
+            \DB::table('password_reset_tokens')
+                ->where('email', $request->email)
+                ->delete();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'El token de restablecimiento ha expirado. Solicita uno nuevo.'
+            ], 400);
+        }
+
+        // Verify token hash
+        if (!\Hash::check($request->token, $resetToken->token)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Token de restablecimiento no válido.'
+            ], 400);
+        }
+
+        // Update user password
+        $user = User::where('email', $request->email)->first();
+        $user->update([
+            'password' => \Hash::make($request->password),
+            'force_password_change' => false, // Reset flag if it existed
+        ]);
+
+        // Delete the token
+        \DB::table('password_reset_tokens')
+            ->where('email', $request->email)
+            ->delete();
+
+        // Log password reset
+        \Log::info('Password reset successful', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'ip' => $request->ip(),
+            'user_agent' => $request->userAgent()
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tu contraseña ha sido restablecida exitosamente.'
         ]);
     }
 
@@ -758,6 +968,47 @@ class AuthController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error interno del servidor. Intenta nuevamente.'
+            ], 500);
+        }
+    }
+
+    /**
+     * Invalidate password reset token
+     */
+    public function invalidateResetToken(Request $request)
+    {
+        $request->validate([
+            'token' => 'required|string',
+            'email' => 'required|email',
+        ]);
+
+        try {
+            $user = User::where('email', $request->email)->first();
+
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'Usuario no encontrado'], 404);
+            }
+
+            // Delete the used token
+            $deleted = DB::table('password_reset_tokens')
+                ->where('email', $request->email)
+                ->where('token', $request->token)
+                ->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Token invalidado correctamente',
+                'invalidated' => $deleted > 0
+            ]);
+        } catch (Exception $e) {
+            Log::error('Error invalidating password reset token', [
+                'error' => $e->getMessage(),
+                'email' => $request->email,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor'
             ], 500);
         }
     }

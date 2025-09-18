@@ -57,7 +57,10 @@ Route::prefix('v1')->group(function () {
         Route::post('login', [AuthController::class, 'login']);
         Route::post('verify-email', [AuthController::class, 'verifyEmail']);
         Route::post('resend-verification', [AuthController::class, 'resendVerification']);
-        Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
+        Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+    Route::post('/validate-reset-token', [AuthController::class, 'validateResetToken']);
+    Route::post('/invalidate-reset-token', [AuthController::class, 'invalidateResetToken']);
 
         // OTP Verification endpoints
         Route::post('verify-otp', [AuthController::class, 'verifyOTP']);

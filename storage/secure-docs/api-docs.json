@@ -1,7 +1,7 @@
 {
     "openapi": "3.0.0",
     "info": {
-        "title": "ReadyMarket API",
+        "title": "Readymarket API RESTful",
         "description": "Complete REST API for Microsoft products marketplace. Includes products management, categories, users, MITEC payment processing, analytics, shopping cart and advanced authentication system.<br><br><strong>Developed by:</strong> Salvador Arturo Rodriguez Loera",
         "contact": {
             "name": "salvador.rodriguez@readymind.ms",
@@ -17,9 +17,6 @@
         {
             "url": "https://readymarket-backend.readymind.mx",
             "description": "Production server"
-        },
-        {
-            "url": ""
         }
     ],
     "paths": {

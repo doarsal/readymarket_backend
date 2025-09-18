@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - ReadyMarket API</title>
+    <title>Login - Readymarket API RESTful</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="h-100 bg-light d-flex align-items-center">
@@ -12,7 +12,7 @@
             <div class="col-md-4">
                 <div class="card shadow">
                     <div class="card-body">
-                        <h4 class="text-center text-primary mb-3">ReadyMarket API</h4>
+                        <h4 class="text-center text-primary mb-3">Readymarket API RESTful</h4>
 
                         @if ($errors->any())
                             <div class="alert alert-danger">

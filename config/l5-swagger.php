@@ -5,7 +5,7 @@ return [
     'documentations' => [
         'default' => [
             'api' => [
-                'title' => 'ReadyMarket API',
+                'title' => 'Readymarket API RESTful',
             ],
 
             'routes' => [
