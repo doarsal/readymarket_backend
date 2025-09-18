@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Store;
 use App\Models\Cart;
 use App\Models\PageView;
+use App\Services\GeoLocationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -463,11 +464,14 @@ class AnalyticsController extends Controller
             'utm_campaign' => 'nullable|string|max:100',
             'utm_term' => 'nullable|string|max:100',
             'utm_content' => 'nullable|string|max:100',
+            'screen_resolution' => 'nullable|string|max:20',
+            'timezone' => 'nullable|string|max:50',
             'additional_data' => 'nullable|array',
         ]);
 
-        // Detectar información del dispositivo y navegador
+        // Servicios
         $agent = new Agent();
+        $geoService = new GeoLocationService();
 
         // Obtener usuario de manera segura
         try {
@@ -476,6 +480,15 @@ class AnalyticsController extends Controller
             $user = null;
         }
 
+        // Obtener IP real del cliente
+        $visitorIP = GeoLocationService::getRealIP();
+
+        // Obtener información de geolocalización
+        $geoData = $geoService->getLocationByIP($visitorIP);
+
+        // Obtener información del user agent
+        $userAgentData = $geoService->parseUserAgent($request->userAgent());
+
         // Generar session ID único si no se proporciona
         $sessionId = $request->input('session_id') ?: 'api_session_' . uniqid();
 
@@ -483,7 +496,7 @@ class AnalyticsController extends Controller
         $trackingData = [
             'user_id' => $user ? $user->id : null,
             'session_id' => $sessionId,
-            'visitor_ip' => $request->ip(),
+            'visitor_ip' => $visitorIP,
             'user_agent' => $request->userAgent(),
 
             // Información de la página
@@ -495,7 +508,9 @@ class AnalyticsController extends Controller
             'query_params' => $request->input('query_params', []),
 
             // ID universal del recurso
-            'resource_id' => $request->resource_id,            // Información de referencia
+            'resource_id' => $request->resource_id,
+
+            // Información de referencia
             'referrer_url' => $request->referrer_url,
             'referrer_domain' => $request->referrer_url ? parse_url($request->referrer_url, PHP_URL_HOST) : null,
 
@@ -506,18 +521,31 @@ class AnalyticsController extends Controller
             'utm_term' => $request->utm_term,
             'utm_content' => $request->utm_content,
 
-            // Información del dispositivo
-            'device_type' => $agent->isMobile() ? 'mobile' : ($agent->isTablet() ? 'tablet' : 'desktop'),
-            'browser' => $agent->browser(),
-            'browser_version' => $agent->version($agent->browser()),
-            'os' => $agent->platform(),
-            'os_version' => $agent->version($agent->platform()),
-            'is_mobile' => $agent->isMobile(),
-            'is_bot' => $agent->isRobot(),
+            // Información del dispositivo (usando nuestro servicio mejorado)
+            'device_type' => $userAgentData['device_type'],
+            'browser' => $userAgentData['browser'],
+            'browser_version' => $userAgentData['browser_version'],
+            'os' => $userAgentData['os'],
+            'os_version' => $userAgentData['os_version'],
+            'screen_resolution' => $request->screen_resolution,
+            'is_mobile' => $userAgentData['is_mobile'],
+            'is_bot' => $userAgentData['is_bot'],
             'language' => $request->header('Accept-Language') ? substr($request->header('Accept-Language'), 0, 2) : null,
 
-            // Datos adicionales
-            'additional_data' => $request->additional_data,
+            // Información geográfica
+            'country' => $geoData['country'],
+            'region' => $geoData['region'],
+            'city' => $geoData['city'],
+            'timezone' => $request->timezone ?: $geoData['timezone'],
+
+            // Datos adicionales (incluyendo coordenadas si están disponibles)
+            'additional_data' => array_merge($request->additional_data ?? [], [
+                'country_name' => $geoData['country_name'] ?? null,
+                'region_code' => $geoData['region_code'] ?? null,
+                'postal_code' => $geoData['postal_code'] ?? null,
+                'latitude' => $geoData['latitude'] ?? null,
+                'longitude' => $geoData['longitude'] ?? null,
+            ])
         ];
 
         // Crear el registro de vista
@@ -531,6 +559,12 @@ class AnalyticsController extends Controller
                 'page_type' => $pageView->page_type,
                 'page_url' => $pageView->page_url,
                 'session_id' => $pageView->session_id,
+                'location' => [
+                    'country' => $geoData['country'],
+                    'region' => $geoData['region'],
+                    'city' => $geoData['city'],
+                    'timezone' => $trackingData['timezone']
+                ],
                 'tracked_at' => $pageView->created_at->format('Y-m-d H:i:s')
             ]
         ]);
