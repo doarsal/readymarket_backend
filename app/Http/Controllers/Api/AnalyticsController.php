@@ -7,10 +7,12 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\Cart;
+use App\Models\PageView;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Jenssegers\Agent\Agent;
 
 /**
  * @OA\Tag(
@@ -424,17 +426,21 @@ class AnalyticsController extends Controller
 
     /**
      * @OA\Post(
-     *     path="/api/v1/analytics/track-view",
+     *     path="/api/v1/analytics/track-page-view",
      *     tags={"Analytics"},
      *     summary="Track page view",
-     *     description="Records a page view for analytics",
-     *     security={{"bearerAuth":{}}},
+     *     description="Records a detailed page view for analytics",
      *     @OA\RequestBody(
      *         required=true,
      *         @OA\JsonContent(
-     *             @OA\Property(property="page_type", type="string", description="Type of page (product, category, index)", example="product"),
-     *             @OA\Property(property="page_id", type="integer", description="ID of the page", example=1),
-     *             @OA\Property(property="store_id", type="integer", description="Store ID", example=1)
+     *             @OA\Property(property="page_type", type="string", description="Type of page", example="product"),
+     *             @OA\Property(property="page_url", type="string", description="Full URL", example="/product/123"),
+     *             @OA\Property(property="page_path", type="string", description="Path without params", example="/product"),
+     *             @OA\Property(property="page_name", type="string", description="Vue route name", example="product-details"),
+     *             @OA\Property(property="resource_id", type="integer", description="Universal resource ID (product, category, etc.)", example=123),
+     *             @OA\Property(property="referrer_url", type="string", description="Referrer URL", example="https://google.com"),
+     *             @OA\Property(property="utm_source", type="string", description="UTM source", example="google"),
+     *             @OA\Property(property="additional_data", type="object", description="Additional custom data")
      *         )
      *     ),
      *     @OA\Response(
@@ -443,23 +449,89 @@ class AnalyticsController extends Controller
      *     )
      * )
      */
-    public function trackView(Request $request): JsonResponse
+    public function trackPageView(Request $request): JsonResponse
     {
         $request->validate([
-            'page_type' => 'required|string|in:product,category,index,store',
-            'page_id' => 'nullable|integer',
-            'store_id' => 'required|integer|exists:stores,id'
+            'page_type' => 'required|string|max:100',
+            'page_url' => 'required|string|max:500',
+            'page_path' => 'required|string|max:300',
+            'page_name' => 'nullable|string|max:100',
+            'resource_id' => 'nullable|integer', // ID universal del recurso
+            'referrer_url' => 'nullable|string|max:500',
+            'utm_source' => 'nullable|string|max:100',
+            'utm_medium' => 'nullable|string|max:100',
+            'utm_campaign' => 'nullable|string|max:100',
+            'utm_term' => 'nullable|string|max:100',
+            'utm_content' => 'nullable|string|max:100',
+            'additional_data' => 'nullable|array',
         ]);
 
-        // Simple tracking (you can expand this later)
+        // Detectar información del dispositivo y navegador
+        $agent = new Agent();
+
+        // Obtener usuario de manera segura
+        try {
+            $user = auth()->guard('sanctum')->user();
+        } catch (\Exception $e) {
+            $user = null;
+        }
+
+        // Generar session ID único si no se proporciona
+        $sessionId = $request->input('session_id') ?: 'api_session_' . uniqid();
+
+        // Preparar datos para el tracking
+        $trackingData = [
+            'user_id' => $user ? $user->id : null,
+            'session_id' => $sessionId,
+            'visitor_ip' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+
+            // Información de la página
+            'page_type' => $request->page_type,
+            'page_url' => $request->page_url,
+            'page_path' => $request->page_path,
+            'page_name' => $request->page_name,
+            'page_params' => $request->input('page_params', []),
+            'query_params' => $request->input('query_params', []),
+
+            // ID universal del recurso
+            'resource_id' => $request->resource_id,            // Información de referencia
+            'referrer_url' => $request->referrer_url,
+            'referrer_domain' => $request->referrer_url ? parse_url($request->referrer_url, PHP_URL_HOST) : null,
+
+            // UTM Parameters
+            'utm_source' => $request->utm_source,
+            'utm_medium' => $request->utm_medium,
+            'utm_campaign' => $request->utm_campaign,
+            'utm_term' => $request->utm_term,
+            'utm_content' => $request->utm_content,
+
+            // Información del dispositivo
+            'device_type' => $agent->isMobile() ? 'mobile' : ($agent->isTablet() ? 'tablet' : 'desktop'),
+            'browser' => $agent->browser(),
+            'browser_version' => $agent->version($agent->browser()),
+            'os' => $agent->platform(),
+            'os_version' => $agent->version($agent->platform()),
+            'is_mobile' => $agent->isMobile(),
+            'is_bot' => $agent->isRobot(),
+            'language' => $request->header('Accept-Language') ? substr($request->header('Accept-Language'), 0, 2) : null,
+
+            // Datos adicionales
+            'additional_data' => $request->additional_data,
+        ];
+
+        // Crear el registro de vista
+        $pageView = PageView::trackView($trackingData);
+
         return response()->json([
             'success' => true,
             'message' => 'Page view tracked successfully',
             'data' => [
-                'page_type' => $request->page_type,
-                'page_id' => $request->page_id,
-                'store_id' => $request->store_id,
-                'tracked_at' => now()->format('Y-m-d H:i:s')
+                'id' => $pageView->id,
+                'page_type' => $pageView->page_type,
+                'page_url' => $pageView->page_url,
+                'session_id' => $pageView->session_id,
+                'tracked_at' => $pageView->created_at->format('Y-m-d H:i:s')
             ]
         ]);
     }
@@ -469,8 +541,7 @@ class AnalyticsController extends Controller
      *     path="/api/v1/analytics/page-views",
      *     tags={"Analytics"},
      *     summary="Get page views analytics",
-     *     description="Returns page views analytics data",
-     *     security={{"bearerAuth":{}}},
+     *     description="Returns detailed page views analytics data",
      *     @OA\Parameter(
      *         name="store_id",
      *         in="query",
@@ -483,6 +554,12 @@ class AnalyticsController extends Controller
      *         description="Filter by page type",
      *         @OA\Schema(type="string")
      *     ),
+     *     @OA\Parameter(
+     *         name="days",
+     *         in="query",
+     *         description="Number of days to analyze (default: 7)",
+     *         @OA\Schema(type="integer")
+     *     ),
      *     @OA\Response(
      *         response=200,
      *         description="Page views retrieved successfully"
@@ -491,17 +568,75 @@ class AnalyticsController extends Controller
      */
     public function getPageViews(Request $request): JsonResponse
     {
-        // Simple implementation - you can expand this later
+        $storeId = $request->input('store_id');
+        $pageType = $request->input('page_type');
+        $days = $request->input('days', 7);
+
+        $query = PageView::query()
+            ->where('created_at', '>=', now()->subDays($days))
+            ->where('is_bot', false); // Excluir bots
+
+        if ($storeId) {
+            $query->where('store_id', $storeId);
+        }
+
+        if ($pageType) {
+            $query->where('page_type', $pageType);
+        }
+
+        // Estadísticas generales
+        $totalViews = $query->count();
+        $uniqueVisitors = $query->distinct('session_id')->count('session_id');
+
+        // Vistas por tipo de página
+        $viewsByType = PageView::selectRaw('page_type, COUNT(*) as total')
+            ->where('created_at', '>=', now()->subDays($days))
+            ->where('is_bot', false)
+            ->when($storeId, fn($q) => $q->where('store_id', $storeId))
+            ->groupBy('page_type')
+            ->pluck('total', 'page_type');
+
+        // Páginas más populares
+        $popularPages = PageView::selectRaw('page_url, page_type, COUNT(*) as views')
+            ->where('created_at', '>=', now()->subDays($days))
+            ->where('is_bot', false)
+            ->when($storeId, fn($q) => $q->where('store_id', $storeId))
+            ->when($pageType, fn($q) => $q->where('page_type', $pageType))
+            ->groupBy(['page_url', 'page_type'])
+            ->orderByDesc('views')
+            ->limit(10)
+            ->get();
+
+        // Vistas por día
+        $viewsByDay = PageView::selectRaw('DATE(created_at) as date, COUNT(*) as views')
+            ->where('created_at', '>=', now()->subDays($days))
+            ->where('is_bot', false)
+            ->when($storeId, fn($q) => $q->where('store_id', $storeId))
+            ->when($pageType, fn($q) => $q->where('page_type', $pageType))
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get();
+
+        // Información de dispositivos
+        $deviceStats = PageView::selectRaw('device_type, COUNT(*) as total')
+            ->where('created_at', '>=', now()->subDays($days))
+            ->where('is_bot', false)
+            ->when($storeId, fn($q) => $q->where('store_id', $storeId))
+            ->groupBy('device_type')
+            ->pluck('total', 'device_type');
+
         return response()->json([
             'success' => true,
             'data' => [
-                'total_views' => 0,
-                'views_by_type' => [
-                    'product' => 0,
-                    'category' => 0,
-                    'index' => 0
+                'summary' => [
+                    'total_views' => $totalViews,
+                    'unique_visitors' => $uniqueVisitors,
+                    'days_analyzed' => $days,
                 ],
-                'message' => 'Page views tracking system ready for implementation'
+                'views_by_type' => $viewsByType,
+                'popular_pages' => $popularPages,
+                'views_by_day' => $viewsByDay,
+                'device_stats' => $deviceStats,
             ]
         ]);
     }

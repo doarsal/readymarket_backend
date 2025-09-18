@@ -120,6 +120,9 @@ Route::prefix('v1')->group(function () {
     // Health check endpoint (público)
     Route::get('health', [HealthController::class, 'check']);
 
+    // Public analytics tracking (no requiere autenticación) - WORKING VERSION
+    Route::post('analytics/track-page-views', [AnalyticsController::class, 'trackPageView']);
+
     // MITEC Payment Gateway endpoints públicos
     Route::get('payments/mitec/config', [MitecPaymentController::class, 'getConfig']);
     Route::post('payments/mitec/webhook', [MitecPaymentController::class, 'webhook']);
@@ -169,7 +172,7 @@ Route::prefix('v1')->group(function () {
         Route::get('analytics/abandoned-carts-simple', [AnalyticsController::class, 'getAbandonedCartsSimple']);
 
         // Tracking endpoints (requieren autenticación)
-        Route::post('analytics/track-view', [AnalyticsController::class, 'trackView'])->middleware('throttle:100,1');
+        Route::post('analytics/track-page-view', [AnalyticsController::class, 'trackPageView'])->middleware('throttle:100,1');
         Route::post('analytics/track-cart-abandonment', [AnalyticsController::class, 'trackCartAbandonment'])->middleware('throttle:50,1');
         Route::get('settings', [SettingsController::class, 'index']);
         Route::get('settings/app-info', [SettingsController::class, 'appInfo']);
