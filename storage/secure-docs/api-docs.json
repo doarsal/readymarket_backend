@@ -820,14 +820,14 @@
                 ]
             }
         },
-        "/api/v1/analytics/track-view": {
+        "/api/v1/analytics/track-page-view": {
             "post": {
                 "tags": [
                     "Analytics"
                 ],
                 "summary": "Track page view",
-                "description": "Records a page view for analytics",
-                "operationId": "b22263e2736c3d1ad078f336b0cd51bf",
+                "description": "Records a detailed page view for analytics",
+                "operationId": "09576a639bce26dc703be13c00082f96",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -835,19 +835,43 @@
                             "schema": {
                                 "properties": {
                                     "page_type": {
-                                        "description": "Type of page (product, category, index)",
+                                        "description": "Type of page",
                                         "type": "string",
                                         "example": "product"
                                     },
-                                    "page_id": {
-                                        "description": "ID of the page",
-                                        "type": "integer",
-                                        "example": 1
+                                    "page_url": {
+                                        "description": "Full URL",
+                                        "type": "string",
+                                        "example": "/product/123"
                                     },
-                                    "store_id": {
-                                        "description": "Store ID",
+                                    "page_path": {
+                                        "description": "Path without params",
+                                        "type": "string",
+                                        "example": "/product"
+                                    },
+                                    "page_name": {
+                                        "description": "Vue route name",
+                                        "type": "string",
+                                        "example": "product-details"
+                                    },
+                                    "resource_id": {
+                                        "description": "Universal resource ID (product, category, etc.)",
                                         "type": "integer",
-                                        "example": 1
+                                        "example": 123
+                                    },
+                                    "referrer_url": {
+                                        "description": "Referrer URL",
+                                        "type": "string",
+                                        "example": "https://google.com"
+                                    },
+                                    "utm_source": {
+                                        "description": "UTM source",
+                                        "type": "string",
+                                        "example": "google"
+                                    },
+                                    "additional_data": {
+                                        "description": "Additional custom data",
+                                        "type": "object"
                                     }
                                 },
                                 "type": "object"
@@ -859,12 +883,7 @@
                     "200": {
                         "description": "Page view tracked successfully"
                     }
-                },
-                "security": [
-                    {
-                        "bearerAuth": []
-                    }
-                ]
+                }
             }
         },
         "/api/v1/analytics/page-views": {
@@ -873,7 +892,7 @@
                     "Analytics"
                 ],
                 "summary": "Get page views analytics",
-                "description": "Returns page views analytics data",
+                "description": "Returns detailed page views analytics data",
                 "operationId": "1829e4ac7e28ed77a02c1660144acb50",
                 "parameters": [
                     {
@@ -891,18 +910,21 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "name": "days",
+                        "in": "query",
+                        "description": "Number of days to analyze (default: 7)",
+                        "schema": {
+                            "type": "integer"
+                        }
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "Page views retrieved successfully"
                     }
-                },
-                "security": [
-                    {
-                        "bearerAuth": []
-                    }
-                ]
+                }
             }
         },
         "/api/v1/analytics/track-cart-abandonment": {
@@ -975,6 +997,88 @@
                         "bearerAuth": []
                     }
                 ]
+            }
+        },
+        "/api/v1/analytics/mark-abandoned-carts": {
+            "post": {
+                "tags": [
+                    "Analytics"
+                ],
+                "summary": "Mark old carts as abandoned",
+                "description": "Marks carts as abandoned after specified hours of inactivity",
+                "operationId": "3b436f4e7b7c006effcca94db500a42e",
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "hours": {
+                                        "description": "Hours of inactivity",
+                                        "type": "integer",
+                                        "example": 24
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Carts marked as abandoned successfully"
+                    }
+                }
+            }
+        },
+        "/api/v1/analytics/track-search": {
+            "post": {
+                "tags": [
+                    "Analytics"
+                ],
+                "summary": "Track a search query",
+                "description": "Records a search query with its results count and metadata",
+                "operationId": "2d43d938b31520d501b7fc9d9472b468",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "search_term",
+                                    "total_results"
+                                ],
+                                "properties": {
+                                    "search_term": {
+                                        "description": "The search term used",
+                                        "type": "string"
+                                    },
+                                    "total_results": {
+                                        "description": "Number of results found",
+                                        "type": "integer"
+                                    },
+                                    "session_id": {
+                                        "description": "User session ID",
+                                        "type": "string"
+                                    },
+                                    "store_id": {
+                                        "description": "Store ID if applicable",
+                                        "type": "integer"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Search tracked successfully"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
             }
         },
         "/api/v1/auth/register": {
@@ -1385,6 +1489,92 @@
                 "responses": {
                     "200": {
                         "description": "Password reset email sent"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/validate-reset-token": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Validate password reset token",
+                "description": "Validate password reset token and get user info",
+                "operationId": "d56bdfb142cbe37c3b36713b78588b7a",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "token"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "token": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Token is valid"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/reset-password": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Reset password",
+                "description": "Reset user password using token",
+                "operationId": "1023bcce0b2950ff7518d34a1bdfacdb",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "token",
+                                    "password",
+                                    "password_confirmation"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "token": {
+                                        "type": "string"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password"
+                                    },
+                                    "password_confirmation": {
+                                        "type": "string",
+                                        "format": "password"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Password reset successful"
                     }
                 }
             }

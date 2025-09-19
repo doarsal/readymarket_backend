@@ -122,6 +122,7 @@ Route::prefix('v1')->group(function () {
 
     // Public analytics tracking (no requiere autenticación) - WORKING VERSION
     Route::post('analytics/track-page-views', [AnalyticsController::class, 'trackPageView']);
+    Route::post('analytics/track-search', [AnalyticsController::class, 'trackSearch'])->middleware('throttle:100,1');
 
     // MITEC Payment Gateway endpoints públicos
     Route::get('payments/mitec/config', [MitecPaymentController::class, 'getConfig']);

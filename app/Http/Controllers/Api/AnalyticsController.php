@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Store;
 use App\Models\Cart;
 use App\Models\PageView;
+use App\Models\Search;
 use App\Services\GeoLocationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -996,6 +997,52 @@ class AnalyticsController extends Controller
                 ->limit(10)
                 ->get();
 
+            // 16. Estadísticas de búsquedas
+            $totalSearches = DB::table('searches')
+                ->whereBetween('searches.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('store_id', $storeId);
+                })
+                ->count();
+
+            $averageSearchResults = DB::table('searches')
+                ->whereBetween('searches.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('store_id', $storeId);
+                })
+                ->avg('total_results');
+
+            $topSearchTerms = DB::table('searches')
+                ->whereBetween('searches.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('store_id', $storeId);
+                })
+                ->select('search_term', DB::raw('COUNT(*) as search_count'), DB::raw('AVG(total_results) as avg_results'))
+                ->groupBy('search_term')
+                ->orderByDesc('search_count')
+                ->limit(10)
+                ->get();
+
+            // Lista detallada de búsquedas para la tabla (con paginación)
+            $allSearches = DB::table('searches')
+                ->whereBetween('searches.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('store_id', $storeId);
+                })
+                ->leftJoin('users', 'searches.user_id', '=', 'users.id')
+                ->select(
+                    'searches.id',
+                    'searches.search_term',
+                    'searches.total_results',
+                    'searches.created_at',
+                    'searches.session_id',
+                    DB::raw('CONCAT(users.first_name, " ", users.last_name) as user_name'),
+                    'users.email as user_email'
+                )
+                ->orderByDesc('searches.created_at')
+                ->limit(100) // Limitar a 100 registros más recientes
+                ->get();
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -1047,6 +1094,12 @@ class AnalyticsController extends Controller
                         'device_stats' => $deviceStats,
                         'browser_stats' => $browserStats,
                         'os_stats' => $osStats
+                    ],
+                    'searches' => [
+                        'total_searches' => $totalSearches,
+                        'average_results' => round($averageSearchResults ?? 0, 2),
+                        'top_search_terms' => $topSearchTerms,
+                        'all_searches' => $allSearches
                     ],
                     'trends' => [
                         'sales_trend' => $salesTrend
@@ -1137,5 +1190,84 @@ class AnalyticsController extends Controller
                 'cutoff_time' => $cutoffTime->format('Y-m-d H:i:s')
             ]
         ]);
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/analytics/track-search",
+     *     tags={"Analytics"},
+     *     summary="Track a search query",
+     *     description="Records a search query with its results count and metadata",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             type="object",
+     *             required={"search_term", "total_results"},
+     *             @OA\Property(property="search_term", type="string", description="The search term used"),
+     *             @OA\Property(property="total_results", type="integer", description="Number of results found"),
+     *             @OA\Property(property="session_id", type="string", description="User session ID"),
+     *             @OA\Property(property="store_id", type="integer", description="Store ID if applicable")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=201,
+     *         description="Search tracked successfully"
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Validation error"
+     *     )
+     * )
+     */
+    public function trackSearch(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'search_term' => 'required|string|max:255',
+                'total_results' => 'required|integer|min:0',
+                'session_id' => 'nullable|string|max:255',
+                'store_id' => 'nullable|integer',
+                'user_id' => 'nullable|integer'
+            ]);
+
+            // Determinar el user_id
+            // 1. Si se envía user_id explícitamente desde el frontend, usar ese
+            // 2. Si no, intentar obtenerlo de la sesión autenticada (si existe)
+            $userId = $request->user_id ?? (auth()->check() ? auth()->id() : null);
+
+            // Crear el registro de búsqueda
+            $search = Search::create([
+                'search_term' => trim($request->search_term),
+                'total_results' => $request->total_results,
+                'user_id' => $userId,
+                'store_id' => $request->store_id,
+                'session_id' => $request->session_id ?? session()->getId(),
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->header('User-Agent')
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Search tracked successfully',
+                'data' => [
+                    'search_id' => $search->id,
+                    'search_term' => $search->search_term,
+                    'total_results' => $search->total_results,
+                    'user_id' => $search->user_id
+                ]
+            ], 201);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error tracking search: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }
