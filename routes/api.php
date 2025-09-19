@@ -162,6 +162,7 @@ Route::prefix('v1')->group(function () {
 
         // Analytics endpoints (TODOS requieren autenticación)
         Route::get('analytics/dashboard', [AnalyticsController::class, 'dashboard']);
+        Route::get('analytics/executive-dashboard', [AnalyticsController::class, 'getExecutiveDashboard']);
         Route::get('analytics/stores', [AnalyticsController::class, 'stores']);
         Route::get('analytics/products/top', [AnalyticsController::class, 'topProducts']);
         Route::get('analytics/categories/performance', [AnalyticsController::class, 'categoriesPerformance']);
@@ -170,6 +171,7 @@ Route::prefix('v1')->group(function () {
         Route::get('analytics/page-views', [AnalyticsController::class, 'getPageViews']);
         Route::get('analytics/abandoned-carts', [AnalyticsController::class, 'getAbandonedCarts']);
         Route::get('analytics/abandoned-carts-simple', [AnalyticsController::class, 'getAbandonedCartsSimple']);
+        Route::post('analytics/mark-abandoned-carts', [AnalyticsController::class, 'markAbandonedCarts']);
 
         // Tracking endpoints (requieren autenticación)
         Route::post('analytics/track-page-view', [AnalyticsController::class, 'trackPageView'])->middleware('throttle:100,1');

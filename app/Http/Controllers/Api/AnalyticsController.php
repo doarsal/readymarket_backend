@@ -745,4 +745,397 @@ class AnalyticsController extends Controller
         // Redirect to simple abandoned carts for now
         return $this->getAbandonedCartsSimple($request);
     }
+
+    /**
+     * Get comprehensive executive dashboard data
+     * All the real metrics requested: users, products, sales, visits, etc.
+     */
+    public function getExecutiveDashboard(Request $request): JsonResponse
+    {
+        try {
+            $dateRange = $this->getDateRange($request);
+            $storeId = $request->get('store_id');
+
+            // Base queries with date filtering
+            $ordersQuery = DB::table('orders')->whereBetween('orders.created_at', $dateRange);
+            $pageViewsQuery = DB::table('page_views')->whereBetween('page_views.created_at', $dateRange);
+            $cartsQuery = DB::table('carts')->whereBetween('carts.created_at', $dateRange);
+
+            if ($storeId) {
+                $ordersQuery->where('store_id', $storeId);
+                $cartsQuery->where('store_id', $storeId);
+            }
+
+            // 1. KPIs Principales
+            $totalUsers = DB::table('users')->count();
+            $totalProductsActive = DB::table('products')->where('is_active', 1)->count();
+            $totalSalesCount = $ordersQuery->count();
+            $totalSalesAmount = $ordersQuery->where('payment_status', 'paid')->sum('total_amount');
+            $totalVisits = $pageViewsQuery->count();
+            $totalMicrosoftAccounts = DB::table('microsoft_accounts')->where('is_active', 1)->count();
+
+            // 2. Producto más comprado
+            $mostBoughtProduct = DB::table('order_items')
+                ->join('orders', 'order_items.order_id', '=', 'orders.id')
+                ->join('products', 'order_items.product_id', '=', 'products.idproduct')
+                ->whereBetween('orders.created_at', $dateRange)
+                ->select('products.ProductTitle', DB::raw('COUNT(*) as total_purchases'))
+                ->groupBy('order_items.product_id', 'products.ProductTitle')
+                ->orderBy('total_purchases', 'desc')
+                ->first();
+
+            // 3. Producto más visitado
+            $mostVisitedProduct = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->where('page_views.page_type', 'product-details')
+                ->whereNotNull('page_views.resource_id')
+                ->select('page_views.resource_id', DB::raw('COUNT(*) as visits'))
+                ->groupBy('page_views.resource_id')
+                ->orderByDesc('visits')
+                ->first();
+
+            $mostVisitedProductDetails = null;
+            if ($mostVisitedProduct) {
+                $mostVisitedProductDetails = DB::table('products')
+                    ->where('idproduct', $mostVisitedProduct->resource_id)
+                    ->select('ProductTitle', 'Publisher')
+                    ->first();
+            }
+
+            // 4. Categoría más visitada
+            $mostVisitedCategory = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->where('page_views.page_type', 'products-category')
+                ->whereNotNull('page_views.resource_id')
+                ->select('page_views.resource_id', DB::raw('COUNT(*) as visits'))
+                ->groupBy('page_views.resource_id')
+                ->orderByDesc('visits')
+                ->first();
+
+            $mostVisitedCategoryDetails = null;
+            if ($mostVisitedCategory) {
+                $mostVisitedCategoryDetails = DB::table('categories')
+                    ->where('id', $mostVisitedCategory->resource_id)
+                    ->select('name', 'identifier')
+                    ->first();
+            }
+
+            // 5. Top 10 productos más visitados
+            $topVisitedProducts = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->where('page_views.page_type', 'product-details')
+                ->whereNotNull('page_views.resource_id')
+                ->select('page_views.resource_id', DB::raw('COUNT(*) as visits'))
+                ->groupBy('page_views.resource_id')
+                ->orderByDesc('visits')
+                ->limit(10)
+                ->get();
+
+            $topVisitedProductsDetails = [];
+            foreach ($topVisitedProducts as $product) {
+                $details = DB::table('products')
+                    ->where('idproduct', $product->resource_id)
+                    ->select('ProductTitle', 'Publisher', 'UnitPrice')
+                    ->first();
+                if ($details) {
+                    $topVisitedProductsDetails[] = [
+                        'title' => $details->ProductTitle,
+                        'publisher' => $details->Publisher,
+                        'price' => $details->UnitPrice,
+                        'visits' => $product->visits
+                    ];
+                }
+            }
+
+            // 6. Visitas por geografía
+            $visitsByCountry = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->whereNotNull('page_views.country')
+                ->select('page_views.country', 'page_views.region', DB::raw('COUNT(*) as visits'))
+                ->groupBy('page_views.country', 'page_views.region')
+                ->orderByDesc('visits')
+                ->limit(10)
+                ->get();
+
+            // 7. Top 10 mejores clientes (más compras)
+            $topCustomers = DB::table('orders')
+                ->join('users', 'orders.user_id', '=', 'users.id')
+                ->whereBetween('orders.created_at', $dateRange)
+                ->where('orders.payment_status', 'paid')
+                ->select(
+                    'users.id',
+                    DB::raw('CONCAT(users.first_name, " ", users.last_name) as name'),
+                    'users.email',
+                    DB::raw('COUNT(*) as total_orders'),
+                    DB::raw('SUM(orders.total_amount) as total_spent')
+                )
+                ->groupBy('users.id', 'users.first_name', 'users.last_name', 'users.email')
+                ->orderBy('total_spent', 'desc')
+                ->limit(10)
+                ->get();
+
+            // 8. Estadísticas de carritos
+            $abandonedCartsQuery = DB::table('carts')->whereBetween('carts.created_at', $dateRange);
+            if ($storeId) {
+                $abandonedCartsQuery->where('carts.store_id', $storeId);
+            }
+
+            $abandonedCarts = $abandonedCartsQuery->where('carts.status', 'abandoned')->count();
+            $activeCarts = DB::table('carts')
+                ->whereBetween('carts.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('store_id', $storeId);
+                })
+                ->where('status', 'active')
+                ->count();
+
+            $convertedCarts = DB::table('carts')
+                ->whereBetween('carts.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('store_id', $storeId);
+                })
+                ->where('status', 'converted')
+                ->count();
+
+            $abandonedCartsValue = DB::table('carts')
+                ->join('cart_items', 'carts.id', '=', 'cart_items.cart_id')
+                ->join('products', 'cart_items.product_id', '=', 'products.idproduct')
+                ->where('carts.status', 'abandoned')
+                ->whereBetween('carts.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('carts.store_id', $storeId);
+                })
+                ->sum(DB::raw('cart_items.quantity * CAST(products.UnitPrice as DECIMAL(10,2))'));
+
+            // Valor total de carritos activos (potencial pérdida si se abandonan)
+            $activeCartsValue = DB::table('carts')
+                ->join('cart_items', 'carts.id', '=', 'cart_items.cart_id')
+                ->join('products', 'cart_items.product_id', '=', 'products.idproduct')
+                ->where('carts.status', 'active')
+                ->whereBetween('carts.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('carts.store_id', $storeId);
+                })
+                ->sum(DB::raw('cart_items.quantity * CAST(products.UnitPrice as DECIMAL(10,2))'));
+
+            // Valor total de carritos convertidos (ventas realizadas)
+            $convertedCartsValue = DB::table('carts')
+                ->join('cart_items', 'carts.id', '=', 'cart_items.cart_id')
+                ->join('products', 'cart_items.product_id', '=', 'products.idproduct')
+                ->where('carts.status', 'converted')
+                ->whereBetween('carts.created_at', $dateRange)
+                ->when($storeId, function($query, $storeId) {
+                    return $query->where('carts.store_id', $storeId);
+                })
+                ->sum(DB::raw('cart_items.quantity * CAST(products.UnitPrice as DECIMAL(10,2))'));
+
+            // 9. Clicks en American Express (modal opens)
+            $amexClicks = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->whereJsonContains('page_views.additional_data->modal_type', 'american_express')
+                ->count();
+
+            // 10. Lista de visitas por página
+            $pageVisits = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->select('page_views.page_type', 'page_views.page_path', DB::raw('COUNT(*) as visits'))
+                ->groupBy('page_views.page_type', 'page_views.page_path')
+                ->orderByDesc('visits')
+                ->limit(20)
+                ->get();
+
+            // 11. Visitas por categoría
+            $visitsByCategory = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->where('page_views.page_type', 'products-category')
+                ->whereNotNull('page_views.resource_id')
+                ->join('categories', 'page_views.resource_id', '=', 'categories.id')
+                ->select('categories.name', 'categories.identifier', DB::raw('COUNT(*) as visits'))
+                ->groupBy('categories.id', 'categories.name', 'categories.identifier')
+                ->orderByDesc('visits')
+                ->get();
+
+            // 12. Tendencia de ventas (últimos 30 días por día)
+            $salesTrend = DB::table('orders')
+                ->where('payment_status', 'paid')
+                ->whereBetween('created_at', $dateRange)
+                ->select(
+                    DB::raw('DATE(created_at) as date'),
+                    DB::raw('COUNT(*) as orders'),
+                    DB::raw('SUM(total_amount) as revenue')
+                )
+                ->groupBy(DB::raw('DATE(created_at)'))
+                ->orderBy('date', 'asc')
+                ->get();
+
+            // 13. Estadísticas de dispositivos
+            $deviceStats = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->select('page_views.device_type', DB::raw('COUNT(*) as visits'))
+                ->groupBy('page_views.device_type')
+                ->orderByDesc('visits')
+                ->get();
+
+            // 14. Estadísticas de navegadores
+            $browserStats = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->select('page_views.browser', DB::raw('COUNT(*) as visits'))
+                ->whereNotNull('page_views.browser')
+                ->groupBy('page_views.browser')
+                ->orderByDesc('visits')
+                ->limit(10)
+                ->get();
+
+            // 15. Estadísticas de sistemas operativos
+            $osStats = DB::table('page_views')
+                ->whereBetween('page_views.created_at', $dateRange)
+                ->select('page_views.os', DB::raw('COUNT(*) as visits'))
+                ->whereNotNull('page_views.os')
+                ->groupBy('page_views.os')
+                ->orderByDesc('visits')
+                ->limit(10)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'kpis' => [
+                        'total_users' => $totalUsers,
+                        'total_products_active' => $totalProductsActive,
+                        'total_sales_count' => $totalSalesCount,
+                        'total_sales_amount' => round($totalSalesAmount, 2),
+                        'total_visits' => $totalVisits,
+                        'total_microsoft_accounts' => $totalMicrosoftAccounts
+                    ],
+                    'top_metrics' => [
+                        'most_bought_product' => $mostBoughtProduct,
+                        'most_visited_product' => $mostVisitedProductDetails ? [
+                            'title' => $mostVisitedProductDetails->ProductTitle,
+                            'publisher' => $mostVisitedProductDetails->Publisher,
+                            'visits' => $mostVisitedProduct->visits
+                        ] : null,
+                        'most_visited_category' => $mostVisitedCategoryDetails ? [
+                            'name' => $mostVisitedCategoryDetails->name,
+                            'identifier' => $mostVisitedCategoryDetails->identifier,
+                            'visits' => $mostVisitedCategory->visits
+                        ] : null
+                    ],
+                    'top_lists' => [
+                        'top_visited_products' => $topVisitedProductsDetails,
+                        'top_customers' => $topCustomers,
+                        'visits_by_geography' => $visitsByCountry,
+                        'visits_by_category' => $visitsByCategory
+                    ],
+                    'carts' => [
+                        'abandoned_count' => $abandonedCarts,
+                        'abandoned_value' => round($abandonedCartsValue, 2),
+                        'active_count' => $activeCarts,
+                        'active_value' => round($activeCartsValue, 2),
+                        'converted_count' => $convertedCarts,
+                        'converted_value' => round($convertedCartsValue, 2),
+                        'total_carts' => $abandonedCarts + $activeCarts + $convertedCarts,
+                        'abandonment_rate' => ($abandonedCarts + $activeCarts + $convertedCarts) > 0 ?
+                            round(($abandonedCarts / ($abandonedCarts + $activeCarts + $convertedCarts)) * 100, 2) : 0,
+                        'conversion_rate' => ($abandonedCarts + $activeCarts + $convertedCarts) > 0 ?
+                            round(($convertedCarts / ($abandonedCarts + $activeCarts + $convertedCarts)) * 100, 2) : 0
+                    ],
+                    'interactions' => [
+                        'amex_clicks' => $amexClicks,
+                        'page_visits' => $pageVisits
+                    ],
+                    'technology' => [
+                        'device_stats' => $deviceStats,
+                        'browser_stats' => $browserStats,
+                        'os_stats' => $osStats
+                    ],
+                    'trends' => [
+                        'sales_trend' => $salesTrend
+                    ]
+                ],
+                'period' => $request->get('period', 'month'),
+                'date_range' => $dateRange
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error retrieving dashboard data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper method to get date range based on period
+     */
+    private function getDateRange(Request $request): array
+    {
+        $period = $request->get('period', 'year');
+        $now = now();
+
+        switch ($period) {
+            case 'today':
+                return [$now->copy()->startOfDay(), $now->copy()->endOfDay()];
+            case 'week':
+                return [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()];
+            case 'month':
+                return [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()];
+            case 'quarter':
+                return [$now->copy()->startOfQuarter(), $now->copy()->endOfQuarter()];
+            case 'year':
+                return [$now->copy()->startOfYear(), $now->copy()->endOfYear()];
+            case 'all':
+                // Para mostrar todos los datos históricos
+                return [\Carbon\Carbon::parse('2020-01-01'), $now->copy()->endOfYear()];
+            case 'custom':
+                $start = $request->get('start_date', $now->copy()->startOfMonth());
+                $end = $request->get('end_date', $now->copy()->endOfMonth());
+                return [
+                    \Carbon\Carbon::parse($start)->startOfDay(),
+                    \Carbon\Carbon::parse($end)->endOfDay()
+                ];
+            default:
+                return [$now->copy()->startOfYear(), $now->copy()->endOfYear()];
+        }
+    }
+
+    /**
+     * Manually mark carts as abandoned for testing purposes
+     *
+     * @OA\Post(
+     *     path="/api/v1/analytics/mark-abandoned-carts",
+     *     tags={"Analytics"},
+     *     summary="Mark old carts as abandoned",
+     *     description="Marks carts as abandoned after specified hours of inactivity",
+     *     @OA\RequestBody(
+     *         required=false,
+     *         @OA\JsonContent(
+     *             @OA\Property(property="hours", type="integer", description="Hours of inactivity", example=24)
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Carts marked as abandoned successfully"
+     *     )
+     * )
+     */
+    public function markAbandonedCarts(Request $request): JsonResponse
+    {
+        $hours = $request->get('hours', 24);
+        $cutoffTime = now()->subHours($hours);
+
+        $abandonedCount = DB::table('carts')
+            ->where('status', 'active')
+            ->where('updated_at', '<', $cutoffTime)
+            ->update(['status' => 'abandoned']);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Se marcaron {$abandonedCount} carritos como abandonados",
+            'data' => [
+                'marked_count' => $abandonedCount,
+                'hours_inactive' => $hours,
+                'cutoff_time' => $cutoffTime->format('Y-m-d H:i:s')
+            ]
+        ]);
+    }
 }
