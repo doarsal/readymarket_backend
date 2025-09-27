@@ -1,0 +1,37 @@
+name: Deploy Readymarket Backend
+
+on:
+  push:
+    branches:
+      - qa
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows]
+    defaults:
+      run:
+        working-directory: C:\inetpub\wwwroot\readymind\mx\readymarket\backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Instalar dependencias de PHP (Composer)
+        run: composer install --no-dev --optimize-autoloader
+
+      - name: Compilar assets con Vite
+        run: |
+          npm ci
+          npm run build
+
+      - name: Migraciones y caches de Laravel
+        run: |
+          php artisan migrate --force
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache
+
+      - name: Restart IIS App Pool
+        run: |
+          Import-Module WebAdministration
+          Restart-WebAppPool -Name "readymarket-backend-pool"
