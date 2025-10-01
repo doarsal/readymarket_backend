@@ -12,11 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Security headers middleware global (pero con excepciones para docs)
-        $middleware->append(\App\Http\Middleware\SecurityHeadersMiddleware::class);        // CORS middleware for API
         $middleware->api(prepend: [
             \Illuminate\Http\Middleware\HandleCors::class,
         ]);
+        // Security headers middleware global (pero con excepciones para docs)
+        $middleware->append(\App\Http\Middleware\SecurityHeadersMiddleware::class);        // CORS middleware for API
 
         // MIDDLEWARE ALIASES
         $middleware->alias([

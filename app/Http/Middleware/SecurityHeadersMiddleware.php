@@ -17,19 +17,22 @@ class SecurityHeadersMiddleware
 
         // Excluir rutas de documentación API de políticas estrictas
         $isDocsRoute = $request->is('api/documentation*') ||
-                      $request->is('docs*') ||
-                      $request->is('api-docs') ||
-                      $request->is('docs/api-docs');        // Headers de seguridad globales
+            $request->is('docs*') ||
+            $request->is('api-docs') ||
+            $request->is('docs/api-docs');
+
+        // Headers de seguridad globales
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('X-XSS-Protection', '1; mode=block');
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
+        // NO aplicar X-Frame-Options ni CSP en rutas API para evitar conflictos con CORS
         if ($isDocsRoute) {
             // CSP más permisivo para Swagger UI
             $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
             $response->headers->set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' cdn.jsdelivr.net unpkg.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self';");
-        } else {
-            // CSP estricto para el resto de la aplicación
+        } elseif (!$request->is('api/*')) {
+            // CSP estricto solo para rutas web (no API)
             $response->headers->set('X-Frame-Options', 'DENY');
             $response->headers->set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;");
         }

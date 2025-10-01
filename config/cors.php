@@ -48,12 +48,14 @@ return [
         'Content-Type',
         'X-Requested-With',
         'X-Cart-Token',
+        'x-cart-token',
         'X-CSRF-TOKEN',
         'Origin',
-        'Cache-Control'
+        'Cache-Control',
+        'X-Content-Type-Options',
     ],
 
-    'exposed_headers' => ['X-Cart-Token'],
+    'exposed_headers' => ['X-Cart-Token', 'x-cart-token'],
 
     'max_age' => 3600, // Cache preflight por 1 hora (reducido de 24h)
 
