@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AmexNewClientForm;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
@@ -85,6 +86,56 @@ class AmexNewClientController extends Controller
      */
     public function __invoke(Request $request)
     {
+
+        // Validar los datos del formulario
+        $validator = Validator::make($request->all(), [
+            'contacto_nombre'          => 'required|string|max:50',
+            'contacto_apellidos'       => 'required|string|max:50',
+            'contacto_telefono'        => 'required|string|min:8|max:15',
+            'contacto_email'           => 'required|email|max:50',
+            'empresa_nombre'           => 'required|string|max:50',
+            'empresa_rfc'              => 'required|string|min:8|max:15',
+            'empresa_ciudad'           => 'required|string|max:50',
+            'empresa_estado'           => 'required|string|max:50',
+            'empresa_codigo_postal'    => 'required|string|max:50|min:5',
+            'empresa_ingresos_anuales' => 'required|string|max:50',
+            'empresa_info_adicional'   => 'nullable|string|max:255',
+        ], [
+            'contacto_nombre.required'          => 'El nombre es obligatorio.',
+            'contacto_nombre.max'               => 'El nombre no puede exceder 50 caracteres.',
+            'contacto_apellidos.required'       => 'Los apellidos son obligatorios.',
+            'contacto_apellidos.max'            => 'Los apellidos no pueden exceder 50 caracteres.',
+            'contacto_telefono.required'        => 'El teléfono es obligatorio.',
+            'contacto_telefono.min'             => 'El teléfono debe tener al menos 8 dígitos.',
+            'contacto_telefono.max'             => 'El teléfono no puede exceder 15 dígitos.',
+            'contacto_email.required'           => 'El correo electrónico es obligatorio.',
+            'contacto_email.email'              => 'El correo electrónico debe tener un formato válido.',
+            'contacto_email.max'                => 'El correo electrónico no puede exceder 50 caracteres.',
+            'empresa_nombre.required'           => 'El nombre es obligatorio.',
+            'empresa_nombre.max'                => 'El nombre no puede exceder 50 caracteres.',
+            'empresa_rfc.required'              => 'El RFC es obligatorio.',
+            'empresa_rfc.min'                   => 'El RFC debe tener al menos 10 caracteres.',
+            'empresa_rfc.max'                   => 'El RFC no puede exceder 15 caracteres.',
+            'empresa_ciudad.required'           => 'La ciudad es obligatoria.',
+            'empresa_ciudad.max'                => 'La ciudad no puede exceder 50 caracteres.',
+            'empresa_estado.required'           => 'El estado es obligatorio.',
+            'empresa_estado.max'                => 'El estado no puede exceder 50 caracteres.',
+            'empresa_codigo_postal.required'    => 'El código postal es obligatorio.',
+            'empresa_codigo_postal.max'         => 'El código postal no puede exceder 50 caracteres.',
+            'empresa_codigo_postal.min'         => 'El código postal no puede exceder 5 caracteres.',
+            'empresa_ingresos_anuales.required' => 'Los ingresos anuales son obligatorios.',
+            'empresa_ingresos_anuales.max'      => 'Los ingresos anuales no pueden exceder 50 caracteres.',
+            'empresa_info_adicional.max'        => 'La información adicional no puede exceder 255 caracteres.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error en la validación de datos.',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
         AmexNewClientForm::create($request->only(self::VALID_FORM_FIELDS));
 
         return response()->json(['success' => true], HttpResponse::HTTP_CREATED);
