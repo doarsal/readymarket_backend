@@ -30,7 +30,7 @@ class OrderService
      */
     public function createOrderFromCart(Cart $cart, PaymentResponse $paymentResponse, ?PaymentSession $paymentSession = null): Order
     {
-        return DB::transaction(function () use ($cart, $paymentResponse, $paymentSession) {
+        $order = DB::transaction(function () use ($cart, $paymentResponse, $paymentSession) {
 
             Log::info('Creando orden desde carrito', [
                 'cart_id' => $cart->id,
