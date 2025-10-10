@@ -883,7 +883,52 @@ class MitecPaymentController extends Controller
                 ], 404);
             }
 
-            // Mapear el status de tu tabla al formato esperado por el frontend
+            // Si el pago fue aprobado pero NO tiene order_id, esperar y reintentar
+            // Esto maneja el race condition cuando el webhook aún está procesando
+            if ($paymentResponse->payment_status === 'approved' && !$paymentResponse->order_id) {
+                Log::info('Payment status: Pago aprobado sin order_id, esperando creación de orden...', [
+                    'reference' => $reference,
+                    'payment_response_id' => $paymentResponse->id
+                ]);
+
+                // Reintentar hasta 3 veces con delays incrementales
+                $maxRetries = 3;
+                $retryDelays = [500000, 1000000, 1500000]; // 0.5s, 1s, 1.5s en microsegundos
+
+                for ($attempt = 0; $attempt < $maxRetries; $attempt++) {
+                    // Esperar antes de reintentar
+                    usleep($retryDelays[$attempt]);
+
+                    // Recargar el PaymentResponse desde la BD
+                    $paymentResponse->refresh();
+                    $paymentResponse->load(['order', 'user']);
+
+                    // Si ya tiene orden, salir del loop
+                    if ($paymentResponse->order_id) {
+                        Log::info('Payment status: Orden encontrada después de reintentar', [
+                            'reference' => $reference,
+                            'payment_response_id' => $paymentResponse->id,
+                            'order_id' => $paymentResponse->order_id,
+                            'attempt' => $attempt + 1,
+                            'wait_time_ms' => array_sum(array_slice($retryDelays, 0, $attempt + 1)) / 1000
+                        ]);
+                        break;
+                    }
+                }
+
+                // Si aún no tiene order después de todos los reintentos, loguear advertencia
+                if (!$paymentResponse->order_id) {
+                    Log::warning('Payment status: Pago aprobado SIN orden después de todos los reintentos', [
+                        'reference' => $reference,
+                        'payment_response_id' => $paymentResponse->id,
+                        'cart_id' => $paymentResponse->cart_id,
+                        'created_at' => $paymentResponse->created_at,
+                        'total_wait_time_ms' => array_sum($retryDelays) / 1000
+                    ]);
+                }
+            }
+
+            // Mapear el status al formato esperado por el frontend
             $status = 'error'; // default
             if ($paymentResponse->payment_status === 'approved') {
                 $status = 'success';
@@ -899,7 +944,7 @@ class MitecPaymentController extends Controller
                     'reference' => $paymentResponse->transaction_reference,
                     'status' => $status,
                     'amount' => $paymentResponse->amount,
-                    'currency' => 'MXN', // Tu tabla no tiene currency, asumir MXN
+                    'currency' => 'MXN', //asumir MXN
                     'authorization_code' => $paymentResponse->auth_code,
                     'processed_at' => $paymentResponse->created_at,
                     'error_message' => $paymentResponse->nb_error,
