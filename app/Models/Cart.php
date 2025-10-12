@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -43,7 +44,7 @@ class Cart extends Model
         'expires_at',
         'metadata',
     ];
-    protected $casts = [
+    protected $casts    = [
         'expires_at' => 'datetime',
         'metadata'   => 'array',
     ];
@@ -92,9 +93,9 @@ class Cart extends Model
         return $this->hasMany(CartItem::class)->where('status', 'active');
     }
 
-    public function checkOutItems(): HasMany
+    public function checkOutItems(): BelongsToMany
     {
-        return $this->hasMany(CheckOutItem::class);
+        return $this->belongsToMany(CheckOutItem::class)->withTimestamps();
     }
 
     public function activeCheckOutItems(): HasMany

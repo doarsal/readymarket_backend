@@ -3,13 +3,16 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\Payment\MitecPaymentService;
+use App\Models\Cart;
+use App\Models\CartCheckOutItem;
 use App\Models\PaymentSession;
-use Illuminate\Http\Request;
+use App\Services\Payment\MitecPaymentService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
 
 /**
  * @OA\Tag(
@@ -87,39 +90,42 @@ class MitecPaymentController extends Controller
 
             // Obtener cart_token del header y convertirlo a cart_id
             $cartToken = $request->header('X-Cart-Token');
-            $cartId = null;
+            $cartId    = null;
 
             // Obtener billing_information_id y microsoft_account_id del request
             $billingInformationId = $request->input('billing_information_id');
-            $microsoftAccountId = $request->input('microsoft_account_id');
-            $paymentMethod = $request->input('payment_method', 'credit_card'); // Default a credit_card si no se especifica
+            $microsoftAccountId   = $request->input('microsoft_account_id');
+            $paymentMethod        = $request->input('payment_method',
+                'credit_card'); // Default a credit_card si no se especifica
 
             Log::info('MITEC: Datos de entrada del request', [
-                'headers' => $request->headers->all(),
-                'cart_token_recibido' => $cartToken ? 'SÍ' : 'NO',
-                'cart_token_hash' => $cartToken ? hash('sha256', $cartToken) : 'N/A',
+                'headers'                => $request->headers->all(),
+                'cart_token_recibido'    => $cartToken ? 'SÍ' : 'NO',
+                'cart_token_hash'        => $cartToken ? hash('sha256', $cartToken) : 'N/A',
                 'billing_information_id' => $billingInformationId,
-                'microsoft_account_id' => $microsoftAccountId,
-                'payment_method' => $paymentMethod,
-                'user_id' => $userId
+                'microsoft_account_id'   => $microsoftAccountId,
+                'payment_method'         => $paymentMethod,
+                'user_id'                => $userId,
             ]);
 
+            $cart = null;
             if ($cartToken) {
-                $cart = \App\Models\Cart::where('cart_token', $cartToken)->first();
+                $cart = Cart::where('cart_token', $cartToken)->first();
                 if ($cart) {
                     $cartId = $cart->id;
+
                     Log::info('MITEC: Cart encontrado', [
                         'cart_token_hash' => hash('sha256', $cartToken), // Hash del token para seguridad
-                        'cart_id' => $cartId,
-                        'user_id' => $userId,
-                        'cart_status' => $cart->status,
-                        'cart_total' => $cart->total_amount
+                        'cart_id'         => $cartId,
+                        'user_id'         => $userId,
+                        'cart_status'     => $cart->status,
+                        'cart_total'      => $cart->total_amount,
                     ]);
                 } else {
                     Log::warning('MITEC: Cart no encontrado con token', [
-                        'cart_token_hash' => hash('sha256', $cartToken), // Hash en lugar de token completo
-                        'total_carts_en_db' => \App\Models\Cart::count(),
-                        'carts_recientes' => \App\Models\Cart::latest()->take(3)->pluck('id', 'cart_token')
+                        'cart_token_hash'   => hash('sha256', $cartToken), // Hash en lugar de token completo
+                        'total_carts_en_db' => Cart::count(),
+                        'carts_recientes'   => Cart::latest()->take(3)->pluck('id', 'cart_token'),
                     ]);
                 }
             } else {
@@ -127,17 +133,13 @@ class MitecPaymentController extends Controller
             }
 
             // Procesar pago con MITEC (ahora con cart_id)
-            $result = $this->mitecPaymentService->processPayment(
-                $request->all(),
-                $userId,
-                $cartId
-            );
+            $result = $this->mitecPaymentService->processPayment($request->all(), $userId, $cartId);
 
             Log::info('MITEC: Resultado del servicio', [
-                'success' => $result['success'],
+                'success'       => $result['success'],
                 'has_reference' => isset($result['transaction_reference']),
                 'has_form_html' => isset($result['form_html']),
-                'error' => $result['error'] ?? null
+                'error'         => $result['error'] ?? null,
             ]);
 
             if ($result['success']) {
@@ -157,89 +159,95 @@ class MitecPaymentController extends Controller
                 // Guardar la transacción en base de datos para mostrar el formulario
                 try {
                     Log::info('MITEC: Creando PaymentSession', [
-                        'transaction_reference' => $result['transaction_reference'],
-                        'user_id' => $userId,
-                        'cart_id' => $cartId,
+                        'transaction_reference'  => $result['transaction_reference'],
+                        'user_id'                => $userId,
+                        'cart_id'                => $cartId,
                         'billing_information_id' => $billingInformationId,
-                        'microsoft_account_id' => $microsoftAccountId,
-                        'cart_id_tipo' => gettype($cartId),
-                        'cart_id_es_null' => $cartId === null ? 'SÍ' : 'NO'
+                        'microsoft_account_id'   => $microsoftAccountId,
+                        'cart_id_tipo'           => gettype($cartId),
+                        'cart_id_es_null'        => $cartId === null ? 'SÍ' : 'NO',
                     ]);
 
-                    $paymentSession = PaymentSession::createForPayment(
-                        $result['transaction_reference'],
-                        $result['form_html'],
-                        $result['mitec_url'],
-                        $userId,
-                        $cartId,
-                        $billingInformationId,
-                        $microsoftAccountId,
-                        $paymentMethod
-                    );
+                    $paymentSession = PaymentSession::createForPayment($result['transaction_reference'],
+                        $result['form_html'], $result['mitec_url'], $userId, $cartId, $billingInformationId,
+                        $microsoftAccountId, $paymentMethod);
 
                     Log::info('MITEC: PaymentSession creado exitosamente', [
-                        'payment_session_id' => $paymentSession->id,
-                        'cart_id_guardado' => $paymentSession->cart_id,
-                        'user_id_guardado' => $paymentSession->user_id,
+                        'payment_session_id'              => $paymentSession->id,
+                        'cart_id_guardado'                => $paymentSession->cart_id,
+                        'user_id_guardado'                => $paymentSession->user_id,
                         'billing_information_id_guardado' => $paymentSession->billing_information_id,
-                        'microsoft_account_id_guardado' => $paymentSession->microsoft_account_id,
-                        'payment_method_guardado' => $paymentSession->payment_method
+                        'microsoft_account_id_guardado'   => $paymentSession->microsoft_account_id,
+                        'payment_method_guardado'         => $paymentSession->payment_method,
                     ]);
-
                 } catch (\Exception $dbError) {
                     Log::error('MITEC: Error guardando sesión de pago', [
-                        'error' => $dbError->getMessage(),
-                        'file' => $dbError->getFile(),
-                        'line' => $dbError->getLine(),
+                        'error'     => $dbError->getMessage(),
+                        'file'      => $dbError->getFile(),
+                        'line'      => $dbError->getLine(),
                         'reference' => $result['transaction_reference'],
-                        'user_id' => $userId,
-                        'cart_id' => $cartId
+                        'user_id'   => $userId,
+                        'cart_id'   => $cartId,
                     ]);
 
                     return response()->json([
-                        'success' => false,
-                        'message' => 'Error guardando la sesión de pago: ' . $dbError->getMessage(),
+                        'success'       => false,
+                        'message'       => 'Error guardando la sesión de pago: ' . $dbError->getMessage(),
                         'error_details' => [
                             'file' => $dbError->getFile(),
-                            'line' => $dbError->getLine()
-                        ]
+                            'line' => $dbError->getLine(),
+                        ],
                     ], 500);
                 }
 
+                // Agregar los check out items al cart si el payment esta correcto
+                if ($cart && $requestCheckOutItems = $request->get('check_out_items')) {
+                    $checkOutItems = Collection::make($requestCheckOutItems)->map(function($item) use ($cart) {
+                        return [
+                            'cart_id'           => $cart->getKey(),
+                            'check_out_item_id' => $item['id'],
+                            'created_at'        => Carbon::now(),
+                            'updated_at'        => Carbon::now(),
+                        ];
+                    })->all();
+
+                    $cart->checkOutItems()->detach();
+
+                    CartCheckOutItem::upsert($checkOutItems, ['cart_id', 'check_out_item_id'], ['updated_at']);
+                }
+
                 return response()->json([
-                    'success' => true,
+                    'success'               => true,
                     'transaction_reference' => $result['transaction_reference'],
-                    'redirect_url' => url('/mitec-payment/' . $result['transaction_reference']),
-                    'message' => 'Pago iniciado correctamente'
+                    'redirect_url'          => url('/mitec-payment/' . $result['transaction_reference']),
+                    'message'               => 'Pago iniciado correctamente',
                 ]);
             } else {
                 return response()->json([
                     'success' => false,
                     'message' => $result['error'],
-                    'details' => $result['message'] ?? null
+                    'details' => $result['message'] ?? null,
                 ], 500);
             }
-
         } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Los datos proporcionados no son válidos',
-                'errors' => $e->errors()
+                'errors'  => $e->errors(),
             ], 422);
-
         } catch (\Exception $e) {
             Log::error('Error crítico en procesamiento MITEC', [
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
                 'user_id' => Auth::id(),
-                'trace' => $e->getTraceAsString()
+                'trace'   => $e->getTraceAsString(),
             ]);
 
             return response()->json([
-                'success' => false,
-                'message' => 'Error interno del servidor',
+                'success'      => false,
+                'message'      => 'Error interno del servidor',
                 'error_detail' => $e->getMessage(), // ← AGREGAR DETALLE DEL ERROR
-                'error_file' => $e->getFile() . ':' . $e->getLine(), // ← AGREGAR ARCHIVO Y LÍNEA
-                'error_id' => uniqid('error_')
+                'error_file'   => $e->getFile() . ':' . $e->getLine(), // ← AGREGAR ARCHIVO Y LÍNEA
+                'error_id'     => uniqid('error_'),
             ], 500);
         }
     }
@@ -270,101 +278,99 @@ class MitecPaymentController extends Controller
     {
         try {
             Log::info('===== WEBHOOK MITEC RECIBIDO =====', [
-                'source' => $request->input('source', 'external'),
+                'source'                => $request->input('source', 'external'),
                 'transaction_reference' => $request->input('transaction_reference'),
-                'ip' => $request->ip(),
-                'all_request_data' => $request->all()
+                'ip'                    => $request->ip(),
+                'all_request_data'      => $request->all(),
             ]);
 
             // Validar datos requeridos
             $transactionReference = $request->input('transaction_reference');
-            $xmlResponse = $request->input('xml_response');
-            $parsedData = $request->input('parsed_data');
+            $xmlResponse          = $request->input('xml_response');
+            $parsedData           = $request->input('parsed_data');
 
             Log::info('Datos del webhook validados', [
                 'has_transaction_ref' => !empty($transactionReference),
-                'has_xml_response' => !empty($xmlResponse),
-                'has_parsed_data' => !empty($parsedData),
-                'parsed_data_keys' => $parsedData ? array_keys($parsedData) : 'NULL'
+                'has_xml_response'    => !empty($xmlResponse),
+                'has_parsed_data'     => !empty($parsedData),
+                'parsed_data_keys'    => $parsedData ? array_keys($parsedData) : 'NULL',
             ]);
 
             if (!$transactionReference) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'transaction_reference es requerido'
+                    'message' => 'transaction_reference es requerido',
                 ], 400);
             }
 
             if (!$xmlResponse) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'xml_response es requerido'
+                    'message' => 'xml_response es requerido',
                 ], 400);
             }
 
             if (!$parsedData) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'parsed_data es requerido'
+                    'message' => 'parsed_data es requerido',
                 ], 400);
             }
 
             // PRIMERO: Buscar PaymentSession ANTES de que se borre
             $paymentSession = null;
             if ($transactionReference) {
-                $paymentSession = \App\Models\PaymentSession::where('transaction_reference', $transactionReference)->first();
+                $paymentSession = \App\Models\PaymentSession::where('transaction_reference', $transactionReference)
+                    ->first();
 
                 if (!$paymentSession) {
                     // Intentar sin el sufijo si tiene guión bajo
-                    $baseName = explode('_', $transactionReference)[0];
-                    $paymentSession = \App\Models\PaymentSession::where('transaction_reference', 'LIKE', $baseName . '%')->first();
+                    $baseName       = explode('_', $transactionReference)[0];
+                    $paymentSession = \App\Models\PaymentSession::where('transaction_reference', 'LIKE',
+                        $baseName . '%')->first();
                 }
             }
 
             Log::info('PaymentSession buscada en webhook', [
                 'transaction_reference' => $transactionReference,
                 'payment_session_found' => $paymentSession ? $paymentSession->id : 'NO_ENCONTRADA',
-                'cart_id' => $paymentSession ? $paymentSession->cart_id : 'N/A',
-                'user_id' => $paymentSession ? $paymentSession->user_id : 'N/A'
+                'cart_id'               => $paymentSession ? $paymentSession->cart_id : 'N/A',
+                'user_id'               => $paymentSession ? $paymentSession->user_id : 'N/A',
             ]);
 
             // Procesar la respuesta usando el servicio
             $paymentResponseService = app(\App\Services\Payment\PaymentResponseService::class);
 
-            $paymentResponse = $paymentResponseService->processPaymentResponse(
-                $parsedData,
-                $xmlResponse,
-                $request->ip(),
-                $request->header('User-Agent'),
-                $paymentSession  // PASAR PaymentSession encontrada
-            );            Log::info('Webhook MITEC procesado exitosamente', [
+            $paymentResponse = $paymentResponseService->processPaymentResponse($parsedData, $xmlResponse,
+                $request->ip(), $request->header('User-Agent'), $paymentSession  // PASAR PaymentSession encontrada
+            );
+            Log::info('Webhook MITEC procesado exitosamente', [
                 'transaction_reference' => $transactionReference,
-                'payment_response_id' => $paymentResponse->id,
-                'payment_status' => $paymentResponse->payment_status,
-                'order_created' => $paymentResponse->order_id ? 'yes' : 'no'
+                'payment_response_id'   => $paymentResponse->id,
+                'payment_status'        => $paymentResponse->payment_status,
+                'order_created'         => $paymentResponse->order_id ? 'yes' : 'no',
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Webhook procesado correctamente',
-                'data' => [
+                'data'    => [
                     'payment_response_id' => $paymentResponse->id,
-                    'payment_status' => $paymentResponse->payment_status,
-                    'order_id' => $paymentResponse->order_id,
-                    'processed_at' => now()->toISOString()
-                ]
+                    'payment_status'      => $paymentResponse->payment_status,
+                    'order_id'            => $paymentResponse->order_id,
+                    'processed_at'        => now()->toISOString(),
+                ],
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error procesando webhook MITEC', [
-                'error' => $e->getMessage(),
+                'error'                 => $e->getMessage(),
                 'transaction_reference' => $request->input('transaction_reference'),
-                'trace' => $e->getTraceAsString()
+                'trace'                 => $e->getTraceAsString(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error procesando webhook: ' . $e->getMessage()
+                'message' => 'Error procesando webhook: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -392,14 +398,14 @@ class MitecPaymentController extends Controller
     {
         return response()->json([
             'success' => true,
-            'config' => [
-                'currency' => env('MITEC_DEFAULT_CURRENCY', 'MXN'),
-                'supported_cards' => ['amex'], // Solo AMEX
-                'min_amount' => (float) env('MITEC_MIN_AMOUNT', 0.01),
-                'max_amount' => (float) env('MITEC_MAX_AMOUNT', 999999.99),
+            'config'  => [
+                'currency'         => env('MITEC_DEFAULT_CURRENCY', 'MXN'),
+                'supported_cards'  => ['amex'], // Solo AMEX
+                'min_amount'       => (float) env('MITEC_MIN_AMOUNT', 0.01),
+                'max_amount'       => (float) env('MITEC_MAX_AMOUNT', 999999.99),
                 'billing_required' => env('MITEC_BILLING_REQUIRED', false),
-                'environment' => env('MITEC_ENVIRONMENT', 'sandbox')
-            ]
+                'environment'      => env('MITEC_ENVIRONMENT', 'sandbox'),
+            ],
         ]);
     }
 
@@ -443,28 +449,27 @@ class MitecPaymentController extends Controller
             if (!$paymentSession) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Sesión de pago no encontrada'
+                    'message' => 'Sesión de pago no encontrada',
                 ], 404);
             }
 
             return response()->json([
-                'success' => true,
-                'form_html' => $paymentSession->form_html,
-                'mitec_url' => $paymentSession->mitec_url,
+                'success'               => true,
+                'form_html'             => $paymentSession->form_html,
+                'mitec_url'             => $paymentSession->mitec_url,
                 'transaction_reference' => $paymentSession->transaction_reference,
-                'created_at' => $paymentSession->created_at
+                'created_at'            => $paymentSession->created_at,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error obteniendo sesión de pago', [
                 'reference' => $reference,
-                'user_id' => Auth::id(),
-                'error' => $e->getMessage()
+                'user_id'   => Auth::id(),
+                'error'     => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error interno del servidor'
+                'message' => 'Error interno del servidor',
             ], 500);
         }
     }
@@ -502,13 +507,13 @@ class MitecPaymentController extends Controller
             if (!$token) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Token requerido'
+                    'message' => 'Token requerido',
                 ], 400);
             }
 
             Log::info('Procesando token MITEC', [
-                'token' => substr($token, 0, 20) . '...',
-                'user_id' => Auth::id()
+                'token'   => substr($token, 0, 20) . '...',
+                'user_id' => Auth::id(),
             ]);
 
             // Procesar token real de MITEC
@@ -517,25 +522,24 @@ class MitecPaymentController extends Controller
             if ($transactionData['success']) {
                 return response()->json([
                     'success' => true,
-                    'status' => $transactionData['status'],
-                    'data' => $transactionData['data']
+                    'status'  => $transactionData['status'],
+                    'data'    => $transactionData['data'],
                 ]);
             } else {
                 return response()->json([
                     'success' => false,
-                    'message' => $transactionData['message']
+                    'message' => $transactionData['message'],
                 ], 400);
             }
-
         } catch (\Exception $e) {
             Log::error('Error procesando token MITEC', [
-                'error' => $e->getMessage(),
-                'user_id' => Auth::id()
+                'error'   => $e->getMessage(),
+                'user_id' => Auth::id(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error procesando el token'
+                'message' => 'Error procesando el token',
             ], 500);
         }
     }
@@ -575,31 +579,32 @@ class MitecPaymentController extends Controller
     {
         try {
             Log::info('MITEC: Procesando token real', [
-                'token_length' => strlen($token),
+                'token_length'  => strlen($token),
                 'token_preview' => substr($token, 0, 10) . '...' . substr($token, -5),
             ]);
 
             // Solo manejar tokens de prueba específicos
             if (in_array($token, ['test', 'success', 'fail', 'error'])) {
                 Log::info('MITEC: Usando token de prueba simple', ['token' => $token]);
+
                 return $this->handleTestToken($token);
             }
 
             // Si el token empieza con "MKT", es una referencia de transacción, NO un token encriptado
             if (strpos($token, 'MKT') === 0) {
                 Log::error('MITEC: Callback recibió referencia en lugar de token encriptado', [
-                    'reference' => $token,
-                    'explanation' => 'MITEC debe enviar token encriptado, no referencia'
+                    'reference'   => $token,
+                    'explanation' => 'MITEC debe enviar token encriptado, no referencia',
                 ]);
 
                 return [
-                    'success' => false,
-                    'status' => 'error',
+                    'success'    => false,
+                    'status'     => 'error',
                     'error_code' => 'INVALID_TOKEN_FORMAT',
-                    'data' => [
+                    'data'       => [
                         'reference' => $token,
-                        'message' => 'Token inválido: se recibió referencia en lugar de token encriptado'
-                    ]
+                        'message'   => 'Token inválido: se recibió referencia en lugar de token encriptado',
+                    ],
                 ];
             }
 
@@ -618,45 +623,44 @@ class MitecPaymentController extends Controller
             if ($isSuccess) {
                 return [
                     'success' => true,
-                    'status' => 'success',
-                    'data' => [
-                        'reference' => $xmlData['r3ds_reference'] ?? 'MKT' . time(),
-                        'amount' => $xmlData['amount'] ?? '0.00',
-                        'currency' => $xmlData['currency'] ?? 'MXN',
-                        'auth_code' => $xmlData['r3ds_authNumber'] ?? '',
-                        'message' => 'Transacción aprobada',
+                    'status'  => 'success',
+                    'data'    => [
+                        'reference'      => $xmlData['r3ds_reference'] ?? 'MKT' . time(),
+                        'amount'         => $xmlData['amount'] ?? '0.00',
+                        'currency'       => $xmlData['currency'] ?? 'MXN',
+                        'auth_code'      => $xmlData['r3ds_authNumber'] ?? '',
+                        'message'        => 'Transacción aprobada',
                         'transaction_id' => $xmlData['r3ds_dsTransId'] ?? '',
                         'card_last_four' => $xmlData['card_last_four'] ?? null,
-                        'card_type' => $xmlData['card_type'] ?? 'UNKNOWN',
-                        'response_code' => $xmlData['r3ds_responseCode'] ?? '00',
-                        'raw_xml' => $decryptedData,
-                        'processed_at' => now()
-                    ]
+                        'card_type'      => $xmlData['card_type'] ?? 'UNKNOWN',
+                        'response_code'  => $xmlData['r3ds_responseCode'] ?? '00',
+                        'raw_xml'        => $decryptedData,
+                        'processed_at'   => now(),
+                    ],
                 ];
             } else {
                 return [
                     'success' => true,
-                    'status' => 'error',
-                    'data' => [
-                        'reference' => $xmlData['r3ds_reference'] ?? 'MKT' . time(),
-                        'amount' => $xmlData['amount'] ?? '0.00',
-                        'currency' => $xmlData['currency'] ?? 'MXN',
-                        'error_code' => $xmlData['r3ds_responseCode'] ?? 'UNKNOWN',
-                        'message' => $this->getErrorMessage($xmlData['r3ds_responseCode'] ?? ''),
-                        'processed_at' => now()
-                    ]
+                    'status'  => 'error',
+                    'data'    => [
+                        'reference'    => $xmlData['r3ds_reference'] ?? 'MKT' . time(),
+                        'amount'       => $xmlData['amount'] ?? '0.00',
+                        'currency'     => $xmlData['currency'] ?? 'MXN',
+                        'error_code'   => $xmlData['r3ds_responseCode'] ?? 'UNKNOWN',
+                        'message'      => $this->getErrorMessage($xmlData['r3ds_responseCode'] ?? ''),
+                        'processed_at' => now(),
+                    ],
                 ];
             }
-
         } catch (\Exception $e) {
             Log::error('Error procesando token MITEC real', [
                 'error' => $e->getMessage(),
-                'token' => substr($token, 0, 20) . '...'
+                'token' => substr($token, 0, 20) . '...',
             ]);
 
             return [
                 'success' => false,
-                'message' => 'Error desencriptando token de respuesta: ' . $e->getMessage()
+                'message' => 'Error desencriptando token de respuesta: ' . $e->getMessage(),
             ];
         }
     }
@@ -668,7 +672,7 @@ class MitecPaymentController extends Controller
     {
         // Usar la clave existente en .env
         $keyHex = env('MITEC_KEY_HEX', '1BF745522C9903AE583C5E234F3D1CEA');
-        $key = hex2bin($keyHex);
+        $key    = hex2bin($keyHex);
 
         // Decodificar base64
         $data = base64_decode($encryptedData, true);
@@ -677,7 +681,7 @@ class MitecPaymentController extends Controller
         }
 
         // Extraer IV (primeros 16 bytes) y datos encriptados
-        $iv = substr($data, 0, 16);
+        $iv              = substr($data, 0, 16);
         $encryptedBinary = substr($data, 16);
 
         // Desencriptar
@@ -706,7 +710,7 @@ class MitecPaymentController extends Controller
             $xml = simplexml_load_string($xmlString);
 
             if (!$xml) {
-                $errors = libxml_get_errors();
+                $errors       = libxml_get_errors();
                 $errorMessage = 'XML parsing failed';
                 if (!empty($errors)) {
                     $errorMessage .= ': ' . $errors[0]->message;
@@ -715,17 +719,16 @@ class MitecPaymentController extends Controller
             }
 
             return [
-                'r3ds_reference' => (string)($xml->r3ds_reference ?? ''),
-                'r3ds_dsTransId' => (string)($xml->r3ds_dsTransId ?? ''),
-                'r3ds_eci' => (string)($xml->r3ds_eci ?? ''),
-                'r3ds_cavv' => (string)($xml->r3ds_cavv ?? ''),
-                'r3ds_authNumber' => (string)($xml->r3ds_authNumber ?? ''),
-                'r3ds_responseCode' => (string)($xml->r3ds_responseCode ?? ''),
-                'r3ds_transStatus' => (string)($xml->r3ds_transStatus ?? ''),
-                'amount' => (string)($xml->amount ?? ''),
-                'currency' => (string)($xml->currency ?? ''),
+                'r3ds_reference'    => (string) ($xml->r3ds_reference ?? ''),
+                'r3ds_dsTransId'    => (string) ($xml->r3ds_dsTransId ?? ''),
+                'r3ds_eci'          => (string) ($xml->r3ds_eci ?? ''),
+                'r3ds_cavv'         => (string) ($xml->r3ds_cavv ?? ''),
+                'r3ds_authNumber'   => (string) ($xml->r3ds_authNumber ?? ''),
+                'r3ds_responseCode' => (string) ($xml->r3ds_responseCode ?? ''),
+                'r3ds_transStatus'  => (string) ($xml->r3ds_transStatus ?? ''),
+                'amount'            => (string) ($xml->amount ?? ''),
+                'currency'          => (string) ($xml->currency ?? ''),
             ];
-
         } catch (\Exception $e) {
             throw new \Exception('Error parsing XML: ' . $e->getMessage());
         }
@@ -736,7 +739,7 @@ class MitecPaymentController extends Controller
      */
     private function isTransactionSuccessful(array $xmlData): bool
     {
-        $transStatus = $xmlData['r3ds_transStatus'] ?? '';
+        $transStatus  = $xmlData['r3ds_transStatus'] ?? '';
         $responseCode = $xmlData['r3ds_responseCode'] ?? '';
 
         // TransStatus 'Y' significa autenticación exitosa
@@ -765,7 +768,7 @@ class MitecPaymentController extends Controller
             '62' => 'Tarjeta restringida',
             '65' => 'Excede límite de frecuencia',
             '91' => 'Emisor no disponible',
-            '96' => 'Error del sistema'
+            '96' => 'Error del sistema',
         ];
 
         return $errorMessages[$responseCode] ?? 'Error desconocido en la transacción';
@@ -796,50 +799,53 @@ class MitecPaymentController extends Controller
 
             Log::info('MITEC Callback: Inicio del proceso', [
                 'token_received' => $token ? 'YES' : 'NO',
-                'token_preview' => $token ? substr($token, 0, 15) . '...' : 'NULL',
+                'token_preview'  => $token ? substr($token, 0, 15) . '...' : 'NULL',
                 'request_method' => $request->method(),
-                'full_url' => $request->fullUrl()
+                'full_url'       => $request->fullUrl(),
             ]);
 
             if (!$token) {
                 Log::error('MITEC Callback: No se recibió token');
                 $errorUrl = $this->getFrontendErrorUrl('NO_TOKEN');
                 Log::info('MITEC Callback: Redirigiendo a error URL', ['url' => $errorUrl]);
+
                 return redirect($errorUrl);
             }
 
             Log::info('MITEC Callback: Procesando token', [
-                'token_preview' => substr($token, 0, 15) . '...'
+                'token_preview' => substr($token, 0, 15) . '...',
             ]);
 
             // Procesar el token de MITEC y guardar en BD
             $result = $this->processAndStorePayment($token);
 
             Log::info('MITEC Callback: Resultado del procesamiento', [
-                'success' => $result['success'],
-                'reference' => $result['reference'] ?? 'NO_REFERENCE'
+                'success'   => $result['success'],
+                'reference' => $result['reference'] ?? 'NO_REFERENCE',
             ]);
 
             if ($result['success']) {
                 // Redirigir al frontend con la referencia
                 $successUrl = $this->getFrontendSuccessUrl($result['reference']);
                 Log::info('MITEC Callback: Redirigiendo a success URL', ['url' => $successUrl]);
+
                 return redirect($successUrl);
             } else {
                 // Redirigir al frontend con error
                 $errorUrl = $this->getFrontendErrorUrl($result['error_code'] ?? 'UNKNOWN_ERROR');
                 Log::info('MITEC Callback: Redirigiendo a error URL', ['url' => $errorUrl]);
+
                 return redirect($errorUrl);
             }
-
         } catch (\Exception $e) {
             Log::error('MITEC Callback Error', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             $errorUrl = $this->getFrontendErrorUrl('PROCESSING_ERROR');
             Log::info('MITEC Callback: Redirigiendo a error URL por excepción', ['url' => $errorUrl]);
+
             return redirect($errorUrl);
         }
     }
@@ -871,15 +877,16 @@ class MitecPaymentController extends Controller
     {
         try {
             // Buscar el pago por referencia en la tabla payment_responses
-            $paymentResponse = \App\Models\PaymentResponse::where('transaction_reference', $reference)
-                ->with(['order', 'user'])
-                ->first();
+            $paymentResponse = \App\Models\PaymentResponse::where('transaction_reference', $reference)->with([
+                'order',
+                'user',
+            ])->first();
 
             if (!$paymentResponse) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Pago no encontrado',
-                    'error_code' => 'PAYMENT_NOT_FOUND'
+                    'success'    => false,
+                    'message'    => 'Pago no encontrado',
+                    'error_code' => 'PAYMENT_NOT_FOUND',
                 ], 404);
             }
 
@@ -887,12 +894,12 @@ class MitecPaymentController extends Controller
             // Esto maneja el race condition cuando el webhook aún está procesando
             if ($paymentResponse->payment_status === 'approved' && !$paymentResponse->order_id) {
                 Log::info('Payment status: Pago aprobado sin order_id, esperando creación de orden...', [
-                    'reference' => $reference,
-                    'payment_response_id' => $paymentResponse->id
+                    'reference'           => $reference,
+                    'payment_response_id' => $paymentResponse->id,
                 ]);
 
                 // Reintentar hasta 3 veces con delays incrementales
-                $maxRetries = 3;
+                $maxRetries  = 3;
                 $retryDelays = [500000, 1000000, 1500000]; // 0.5s, 1s, 1.5s en microsegundos
 
                 for ($attempt = 0; $attempt < $maxRetries; $attempt++) {
@@ -906,11 +913,11 @@ class MitecPaymentController extends Controller
                     // Si ya tiene orden, salir del loop
                     if ($paymentResponse->order_id) {
                         Log::info('Payment status: Orden encontrada después de reintentar', [
-                            'reference' => $reference,
+                            'reference'           => $reference,
                             'payment_response_id' => $paymentResponse->id,
-                            'order_id' => $paymentResponse->order_id,
-                            'attempt' => $attempt + 1,
-                            'wait_time_ms' => array_sum(array_slice($retryDelays, 0, $attempt + 1)) / 1000
+                            'order_id'            => $paymentResponse->order_id,
+                            'attempt'             => $attempt + 1,
+                            'wait_time_ms'        => array_sum(array_slice($retryDelays, 0, $attempt + 1)) / 1000,
                         ]);
                         break;
                     }
@@ -919,11 +926,11 @@ class MitecPaymentController extends Controller
                 // Si aún no tiene order después de todos los reintentos, loguear advertencia
                 if (!$paymentResponse->order_id) {
                     Log::warning('Payment status: Pago aprobado SIN orden después de todos los reintentos', [
-                        'reference' => $reference,
+                        'reference'           => $reference,
                         'payment_response_id' => $paymentResponse->id,
-                        'cart_id' => $paymentResponse->cart_id,
-                        'created_at' => $paymentResponse->created_at,
-                        'total_wait_time_ms' => array_sum($retryDelays) / 1000
+                        'cart_id'             => $paymentResponse->cart_id,
+                        'created_at'          => $paymentResponse->created_at,
+                        'total_wait_time_ms'  => array_sum($retryDelays) / 1000,
                     ]);
                 }
             }
@@ -941,35 +948,34 @@ class MitecPaymentController extends Controller
             return response()->json([
                 'success' => true,
                 'payment' => [
-                    'reference' => $paymentResponse->transaction_reference,
-                    'status' => $status,
-                    'amount' => $paymentResponse->amount,
-                    'currency' => 'MXN', //asumir MXN
+                    'reference'          => $paymentResponse->transaction_reference,
+                    'status'             => $status,
+                    'amount'             => $paymentResponse->amount,
+                    'currency'           => 'MXN', //asumir MXN
                     'authorization_code' => $paymentResponse->auth_code,
-                    'processed_at' => $paymentResponse->created_at,
-                    'error_message' => $paymentResponse->nb_error,
-                    'response_code' => $paymentResponse->response_code,
-                    'card_last_four' => $paymentResponse->card_last_four,
-                    'card_type' => $paymentResponse->card_type,
-                    'order_id' => $paymentResponse->order_id
+                    'processed_at'       => $paymentResponse->created_at,
+                    'error_message'      => $paymentResponse->nb_error,
+                    'response_code'      => $paymentResponse->response_code,
+                    'card_last_four'     => $paymentResponse->card_last_four,
+                    'card_type'          => $paymentResponse->card_type,
+                    'order_id'           => $paymentResponse->order_id,
                 ],
-                'order' => $paymentResponse->order ? [
+                'order'   => $paymentResponse->order ? [
                     'order_number' => $paymentResponse->order->order_number,
-                    'status' => $paymentResponse->order->status,
-                    'total_amount' => $paymentResponse->order->total_amount
-                ] : null
+                    'status'       => $paymentResponse->order->status,
+                    'total_amount' => $paymentResponse->order->total_amount,
+                ] : null,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error consultando estado de pago', [
                 'reference' => $reference,
-                'error' => $e->getMessage()
+                'error'     => $e->getMessage(),
             ]);
 
             return response()->json([
-                'success' => false,
-                'message' => 'Error interno del servidor',
-                'error_code' => 'INTERNAL_ERROR'
+                'success'    => false,
+                'message'    => 'Error interno del servidor',
+                'error_code' => 'INTERNAL_ERROR',
             ], 500);
         }
     }
@@ -987,6 +993,7 @@ class MitecPaymentController extends Controller
 
             if (!$tokenResult['success']) {
                 \DB::rollBack();
+
                 return $tokenResult;
             }
 
@@ -994,48 +1001,48 @@ class MitecPaymentController extends Controller
 
             // Buscar la PaymentSession original para obtener user_id y cart_id
             $paymentSession = \App\Models\PaymentSession::where('transaction_reference', $data['reference'])->first();
-            $userId = null;
-            $cartId = null;
+            $userId         = null;
+            $cartId         = null;
 
             if ($paymentSession) {
                 $userId = $paymentSession->user_id;
                 $cartId = $paymentSession->cart_id;
                 Log::info('MITEC: PaymentSession encontrada', [
                     'reference' => $data['reference'],
-                    'user_id' => $userId,
-                    'cart_id' => $cartId
+                    'user_id'   => $userId,
+                    'cart_id'   => $cartId,
                 ]);
             } else {
                 Log::warning('MITEC: PaymentSession no encontrada', [
-                    'reference' => $data['reference']
+                    'reference' => $data['reference'],
                 ]);
             }
 
             // Crear registro en tu tabla payment_responses
             $paymentResponse = \App\Models\PaymentResponse::create([
                 'transaction_reference' => $data['reference'],
-                'gateway' => 'mitec',
-                'payment_status' => $tokenResult['status'] === 'success' ? 'approved' : 'error',
-                'amount' => $data['amount'],
-                'auth_code' => $data['auth_code'] ?? null,
-                'response_code' => $data['response_code'] ?? '00',
-                'response_description' => $data['message'] ?? 'Transacción procesada',
-                'card_last_four' => $data['card_last_four'] ?? null,
-                'card_type' => $data['card_type'] ?? 'UNKNOWN',
-                'raw_xml_response' => $data['raw_xml'] ?? '<xml></xml>',
-                'ds_trans_id' => $data['transaction_id'] ?? null,
-                'trans_status' => $tokenResult['status'] === 'success' ? 'Y' : 'N',
-                'mitec_date' => now(),
-                'ip_address' => request()->ip(),
-                'user_agent' => request()->userAgent(),
-                'user_id' => $userId, // Obtenido de PaymentSession
-                'cart_id' => $cartId, // Obtenido de PaymentSession
-                'payment_session_id' => $paymentSession ? $paymentSession->id : null,
-                'metadata' => [
+                'gateway'               => 'mitec',
+                'payment_status'        => $tokenResult['status'] === 'success' ? 'approved' : 'error',
+                'amount'                => $data['amount'],
+                'auth_code'             => $data['auth_code'] ?? null,
+                'response_code'         => $data['response_code'] ?? '00',
+                'response_description'  => $data['message'] ?? 'Transacción procesada',
+                'card_last_four'        => $data['card_last_four'] ?? null,
+                'card_type'             => $data['card_type'] ?? 'UNKNOWN',
+                'raw_xml_response'      => $data['raw_xml'] ?? '<xml></xml>',
+                'ds_trans_id'           => $data['transaction_id'] ?? null,
+                'trans_status'          => $tokenResult['status'] === 'success' ? 'Y' : 'N',
+                'mitec_date'            => now(),
+                'ip_address'            => request()->ip(),
+                'user_agent'            => request()->userAgent(),
+                'user_id'               => $userId, // Obtenido de PaymentSession
+                'cart_id'               => $cartId, // Obtenido de PaymentSession
+                'payment_session_id'    => $paymentSession ? $paymentSession->id : null,
+                'metadata'              => [
                     'original_token' => substr($token, 0, 20) . '...',
-                    'processed_at' => now()->toISOString(),
-                    'full_response' => $data
-                ]
+                    'processed_at'   => now()->toISOString(),
+                    'full_response'  => $data,
+                ],
             ]);
 
             // Si el pago es exitoso, generar la orden
@@ -1047,23 +1054,22 @@ class MitecPaymentController extends Controller
             \DB::commit();
 
             return [
-                'success' => true,
-                'reference' => $paymentResponse->transaction_reference,
-                'payment_id' => $paymentResponse->id
+                'success'    => true,
+                'reference'  => $paymentResponse->transaction_reference,
+                'payment_id' => $paymentResponse->id,
             ];
-
         } catch (\Exception $e) {
             \DB::rollBack();
 
             Log::error('Error procesando y guardando pago', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return [
-                'success' => false,
+                'success'    => false,
                 'error_code' => 'PROCESSING_ERROR',
-                'message' => 'Error procesando el pago'
+                'message'    => 'Error procesando el pago',
             ];
         }
     }
@@ -1071,24 +1077,26 @@ class MitecPaymentController extends Controller
     /**
      * Crea una orden a partir de una respuesta de pago exitosa
      */
-    private function createOrderFromPaymentResponse(\App\Models\PaymentResponse $paymentResponse, ?\App\Models\PaymentSession $paymentSession = null): \App\Models\Order
-    {
+    private function createOrderFromPaymentResponse(
+        \App\Models\PaymentResponse $paymentResponse,
+        ?\App\Models\PaymentSession $paymentSession = null
+    ): \App\Models\Order {
         $paymentMethod = $paymentSession?->payment_method ?? 'credit_card';
 
         return \App\Models\Order::create([
-            'order_number' => 'MKT' . substr(time(), -6) . rand(10, 99),
-            'user_id' => $paymentResponse->user_id ?? 1, // ID por defecto si no hay usuario
-            'cart_id' => $paymentResponse->cart_id, // Puede ser null
-            'store_id' => 1, // ID de tienda por defecto
-            'status' => 'completed', // ENUM: pending,processing,completed,cancelled,refunded
-            'payment_status' => 'paid', // ENUM: pending,paid,failed,cancelled,refunded,partial_refund
-            'total_amount' => $paymentResponse->amount,
-            'currency_id' => 1, // Asumiendo MXN
-            'payment_method' => $paymentMethod,
+            'order_number'    => 'MKT' . substr(time(), -6) . rand(10, 99),
+            'user_id'         => $paymentResponse->user_id ?? 1, // ID por defecto si no hay usuario
+            'cart_id'         => $paymentResponse->cart_id, // Puede ser null
+            'store_id'        => 1, // ID de tienda por defecto
+            'status'          => 'completed', // ENUM: pending,processing,completed,cancelled,refunded
+            'payment_status'  => 'paid', // ENUM: pending,paid,failed,cancelled,refunded,partial_refund
+            'total_amount'    => $paymentResponse->amount,
+            'currency_id'     => 1, // Asumiendo MXN
+            'payment_method'  => $paymentMethod,
             'payment_gateway' => 'mitec',
-            'transaction_id' => $paymentResponse->ds_trans_id,
-            'paid_at' => $paymentResponse->created_at,
-            'processed_at' => now()
+            'transaction_id'  => $paymentResponse->ds_trans_id,
+            'paid_at'         => $paymentResponse->created_at,
+            'processed_at'    => now(),
         ]);
     }
 
@@ -1106,18 +1114,18 @@ class MitecPaymentController extends Controller
 
         // Por ahora crear una orden básica, puedes expandir esto según tu lógica de negocio
         return \App\Models\Order::create([
-            'order_number' => 'ORD-' . time() . '-' . substr(md5($payment->reference), 0, 6),
-            'user_id' => $payment->user_id,
-            'cart_id' => $payment->cart_id,
-            'status' => 'completed', // Status válido del ENUM
-            'payment_status' => 'paid',
-            'total_amount' => $payment->amount,
-            'currency_id' => 1, // Asumiendo MXN
-            'payment_method' => $paymentMethod,
+            'order_number'    => 'ORD-' . time() . '-' . substr(md5($payment->reference), 0, 6),
+            'user_id'         => $payment->user_id,
+            'cart_id'         => $payment->cart_id,
+            'status'          => 'completed', // Status válido del ENUM
+            'payment_status'  => 'paid',
+            'total_amount'    => $payment->amount,
+            'currency_id'     => 1, // Asumiendo MXN
+            'payment_method'  => $paymentMethod,
             'payment_gateway' => 'mitec',
-            'transaction_id' => $payment->transaction_id,
-            'paid_at' => $payment->processed_at,
-            'processed_at' => now()
+            'transaction_id'  => $payment->transaction_id,
+            'paid_at'         => $payment->processed_at,
+            'processed_at'    => now(),
         ]);
     }
 
@@ -1127,6 +1135,7 @@ class MitecPaymentController extends Controller
     private function getFrontendSuccessUrl(string $reference): string
     {
         $baseUrl = env('FRONTEND_URL', 'http://localhost:5173');
+
         return $baseUrl . '/payment-result?reference=' . urlencode($reference) . '&status=success';
     }
 
@@ -1136,6 +1145,7 @@ class MitecPaymentController extends Controller
     private function getFrontendErrorUrl(string $errorCode): string
     {
         $baseUrl = env('FRONTEND_URL', 'http://localhost:5173');
+
         return $baseUrl . '/payment-result?status=error&error=' . urlencode($errorCode);
     }
 
@@ -1149,39 +1159,39 @@ class MitecPaymentController extends Controller
             case 'success':
                 return [
                     'success' => true,
-                    'status' => 'success',
-                    'data' => [
-                        'reference' => 'TEST_' . time(),
-                        'amount' => '100.00',
-                        'currency' => 'MXN',
-                        'card_last_four' => '1234',
-                        'transaction_date' => now()->format('Y-m-d H:i:s'),
-                        'authorization_code' => 'TEST_AUTH_' . substr(md5(time()), 0, 6)
-                    ]
+                    'status'  => 'success',
+                    'data'    => [
+                        'reference'          => 'TEST_' . time(),
+                        'amount'             => '100.00',
+                        'currency'           => 'MXN',
+                        'card_last_four'     => '1234',
+                        'transaction_date'   => now()->format('Y-m-d H:i:s'),
+                        'authorization_code' => 'TEST_AUTH_' . substr(md5(time()), 0, 6),
+                    ],
                 ];
 
             case 'fail':
                 return [
-                    'success' => false,
-                    'status' => 'declined',
-                    'error_code' => 'CARD_DECLINED',
-                    'error_message' => 'La tarjeta fue rechazada por el banco emisor'
+                    'success'       => false,
+                    'status'        => 'declined',
+                    'error_code'    => 'CARD_DECLINED',
+                    'error_message' => 'La tarjeta fue rechazada por el banco emisor',
                 ];
 
             case 'error':
                 return [
-                    'success' => false,
-                    'status' => 'error',
-                    'error_code' => 'PROCESSING_ERROR',
-                    'error_message' => 'Error en el procesamiento de la transacción'
+                    'success'       => false,
+                    'status'        => 'error',
+                    'error_code'    => 'PROCESSING_ERROR',
+                    'error_message' => 'Error en el procesamiento de la transacción',
                 ];
 
             default:
                 return [
-                    'success' => false,
-                    'status' => 'error',
-                    'error_code' => 'INVALID_TEST_TOKEN',
-                    'error_message' => 'Token de prueba no reconocido'
+                    'success'       => false,
+                    'status'        => 'error',
+                    'error_code'    => 'INVALID_TEST_TOKEN',
+                    'error_message' => 'Token de prueba no reconocido',
                 ];
         }
     }

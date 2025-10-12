@@ -44,6 +44,7 @@ class CheckOutItemResource extends JsonResource
             'item'                 => $this->resource->item,
             'description'          => $this->resource->description,
             'price'                => $price ? $this->getPriceInfo($price) : null,
+            'default'              => $this->resource->default,
             'min_cart_amount'      => $minCartAmount ? $this->getPriceInfo($minCartAmount) : null,
             'max_cart_amount'      => $maxCartAmount ? $this->getPriceInfo($maxCartAmount) : null,
             'percentage_of_amount' => $this->resource->percentage_of_amount,

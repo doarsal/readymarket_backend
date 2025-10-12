@@ -55,6 +55,7 @@ class CheckOutItemsController extends Controller
      *     @OA\Property(property="id", type="integer", example=1),
      *     @OA\Property(property="item", type="string", example="Test Item"),
      *     @OA\Property(property="description", type="string", nullable=true, example="Description"),
+     *     @OA\Property(property="default", type="boolean", nullable=false, example=true),
      *     @OA\Property(
      *         property="price",
      *         description="Price in the store currency. May be null or an object with details.",
