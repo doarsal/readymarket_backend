@@ -43,12 +43,10 @@ class Cart extends Model
         'expires_at',
         'metadata',
     ];
-
     protected $casts = [
         'expires_at' => 'datetime',
-        'metadata' => 'array',
+        'metadata'   => 'array',
     ];
-
     /**
      * Appends para compatibilidad con frontend
      */
@@ -94,6 +92,16 @@ class Cart extends Model
         return $this->hasMany(CartItem::class)->where('status', 'active');
     }
 
+    public function checkOutItems(): HasMany
+    {
+        return $this->hasMany(CheckOutItem::class);
+    }
+
+    public function activeCheckOutItems(): HasMany
+    {
+        return $this->hasMany(CheckOutItem::class)->active();
+    }
+
     /**
      * Items guardados para después
      */
@@ -112,8 +120,7 @@ class Cart extends Model
 
     public function scopeExpired($query)
     {
-        return $query->whereNotNull('expires_at')
-                    ->where('expires_at', '<', now());
+        return $query->whereNotNull('expires_at')->where('expires_at', '<', now());
     }
 
     public function scopeForUser($query, $userId)
@@ -142,6 +149,7 @@ class Cart extends Model
     public function getTaxAmountAttribute(): float
     {
         $taxRate = config('facturalo.taxes.iva.rate', 0.16);
+
         return round($this->subtotal * $taxRate, 2);
     }
 
@@ -158,16 +166,16 @@ class Cart extends Model
      */
     public function calculateTotals(): array
     {
-        $subtotal = $this->subtotal;
-        $taxAmount = $this->tax_amount;
+        $subtotal    = $this->subtotal;
+        $taxAmount   = $this->tax_amount;
         $totalAmount = $this->total_amount;
 
         return [
-            'subtotal' => $subtotal,
-            'tax_amount' => $taxAmount,
-            'tax_rate' => config('facturalo.taxes.iva.rate', 0.16),
+            'subtotal'     => $subtotal,
+            'tax_amount'   => $taxAmount,
+            'tax_rate'     => config('facturalo.taxes.iva.rate', 0.16),
             'total_amount' => $totalAmount,
-            'items_count' => $this->activeItems->sum('quantity'),
+            'items_count'  => $this->activeItems->sum('quantity'),
         ];
     }
 
@@ -240,7 +248,7 @@ class Cart extends Model
     {
         parent::boot();
 
-        static::creating(function ($cart) {
+        static::creating(function($cart) {
             if (empty($cart->cart_token)) {
                 $cart->cart_token = self::generateCartToken();
             }

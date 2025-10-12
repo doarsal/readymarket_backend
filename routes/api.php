@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\BillingInformationController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CfdiUsageController;
+use App\Http\Controllers\Api\CheckOutItemsController;
 use App\Http\Controllers\Api\CurrencyController;
 use App\Http\Controllers\Api\ExchangeRateController;
 use App\Http\Controllers\Api\HealthController;
@@ -157,6 +158,10 @@ Route::prefix('v1')->group(function() {
             Route::get('/saved-items', [CartController::class, 'savedItems']);
             Route::post('/items/{item}/move-to-cart', [CartController::class, 'moveToCart']);
         });
+    });
+
+    Route::prefix('check-out-items')->group(function() {
+        Route::get('/', [CheckOutItemsController::class, 'index']);
     });
 
     // Promoción Amex
