@@ -38,6 +38,23 @@ class MitecPaymentService
     public function processPayment(array $paymentData, ?int $userId = null, ?int $cartId = null): array
     {
         try {
+            // Si no viene amount en los datos, calcularlo desde el carrito
+            if (empty($paymentData['amount']) && $cartId) {
+                $cart = \App\Models\Cart::find($cartId);
+                if ($cart) {
+                    $paymentData['amount'] = number_format($cart->total_amount, 2, '.', '');
+                    Log::info('MITEC: Amount calculado desde carrito', [
+                        'cart_id' => $cartId,
+                        'amount' => $paymentData['amount']
+                    ]);
+                } else {
+                    Log::error('MITEC: Cart no encontrado para calcular amount', [
+                        'cart_id' => $cartId
+                    ]);
+                    throw new \Exception('No se pudo determinar el monto de la transacción');
+                }
+            }
+
             // Validar datos de entrada
             $validatedData = $this->validatePaymentData($paymentData);
 
@@ -174,7 +191,7 @@ class MitecPaymentService
             'exp_month' => ['required', 'string', 'size:2', 'regex:/^(0[1-9]|1[0-2])$/'], // String 01-12
             'exp_year' => ['required', 'string', 'size:2', 'regex:/^[0-9]{2}$/'], // String de 2 dígitos
             'cvv' => ['required', 'string', 'min:3', 'max:4', 'regex:/^[0-9]+$/'],
-            'amount' => ['required', 'string', 'regex:/^\d+\.\d{2}$/'], // String con formato 1.00
+            'amount' => ['sometimes', 'string', 'regex:/^\d+\.\d{2}$/'], // Opcional - se calcula desde el carrito si no viene
             'currency' => ['sometimes', 'string', 'in:MXN,USD'],
             'billing_phone' => ['sometimes', 'string', 'max:20'],
             'billing_email' => ['sometimes', 'email', 'max:255']
