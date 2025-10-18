@@ -1,34 +1,36 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\CategoryController;
-use App\Http\Controllers\Api\ProductController;
-use App\Http\Controllers\Api\HealthController;
-use App\Http\Controllers\Api\StoreController;
-use App\Http\Controllers\Api\LanguageController;
-use App\Http\Controllers\Api\CurrencyController;
-use App\Http\Controllers\Api\ExchangeRateController;
-use App\Http\Controllers\Api\TranslationController;
-use App\Http\Controllers\Api\StoreConfigurationController;
-use App\Http\Controllers\Api\AnalyticsController;
-use App\Http\Controllers\Api\SettingsController;
-use App\Http\Controllers\Api\UserController;
-use App\Http\Controllers\Api\RoleController;
-use App\Http\Controllers\Api\PermissionController;
-use App\Http\Controllers\Api\MicrosoftAccountController;
-use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ActivityController;
-use App\Http\Controllers\Api\UserActivityLogController;
-use App\Http\Controllers\Api\TaxRegimeController;
-use App\Http\Controllers\Api\PostalCodeController;
+use App\Http\Controllers\Api\AmexNewClientController;
+use App\Http\Controllers\Api\AnalyticsController;
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BillingInformationController;
 use App\Http\Controllers\Api\CartController;
-use App\Http\Controllers\Api\PaymentCardController;
-use App\Http\Controllers\Api\OrderController;
-use App\Http\Controllers\Api\MitecPaymentController;
+use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CfdiUsageController;
+use App\Http\Controllers\Api\CheckOutItemsController;
+use App\Http\Controllers\Api\CurrencyController;
+use App\Http\Controllers\Api\ExchangeRateController;
+use App\Http\Controllers\Api\HealthController;
+use App\Http\Controllers\Api\LanguageController;
+use App\Http\Controllers\Api\MicrosoftAccountController;
+use App\Http\Controllers\Api\MitecPaymentController;
+use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\PaymentCardController;
+use App\Http\Controllers\Api\PermissionController;
+use App\Http\Controllers\Api\PostalCodeController;
+use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\SettingsController;
+use App\Http\Controllers\Api\StoreConfigurationController;
+use App\Http\Controllers\Api\StoreController;
+use App\Http\Controllers\Api\TaxRegimeController;
+use App\Http\Controllers\Api\TranslationController;
+use App\Http\Controllers\Api\UserActivityLogController;
+use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\ContactController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -41,7 +43,7 @@ use App\Http\Controllers\ContactController;
 |
 */
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
+Route::middleware('auth:sanctum')->get('/user', function(Request $request) {
     return $request->user();
 });
 
@@ -49,25 +51,25 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 // Nota: Las rutas de perfil ahora están en el grupo v1, bajo auth:sanctum
 
 // Microsoft Marketplace API Routes
-Route::prefix('v1')->group(function () {
+Route::prefix('v1')->group(function() {
 
     // Rutas de autenticación
-    Route::prefix('auth')->middleware('throttle:10,1')->group(function () {
+    Route::prefix('auth')->middleware('throttle:10,1')->group(function() {
         Route::post('register', [AuthController::class, 'register']);
         Route::post('login', [AuthController::class, 'login']);
         Route::post('verify-email', [AuthController::class, 'verifyEmail']);
         Route::post('resend-verification', [AuthController::class, 'resendVerification']);
         Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
-    Route::post('/validate-reset-token', [AuthController::class, 'validateResetToken']);
-    Route::post('/invalidate-reset-token', [AuthController::class, 'invalidateResetToken']);
+        Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+        Route::post('/validate-reset-token', [AuthController::class, 'validateResetToken']);
+        Route::post('/invalidate-reset-token', [AuthController::class, 'invalidateResetToken']);
 
         // OTP Verification endpoints
         Route::post('verify-otp', [AuthController::class, 'verifyOTP']);
         Route::post('resend-otp', [AuthController::class, 'resendOTP']);
 
         // Estos SÍ requieren autenticación
-        Route::middleware('auth:sanctum')->group(function () {
+        Route::middleware('auth:sanctum')->group(function() {
             Route::post('logout', [AuthController::class, 'logout']);
             Route::get('me', [AuthController::class, 'me']);
             Route::post('change-password', [AuthController::class, 'changePassword']);
@@ -84,7 +86,7 @@ Route::prefix('v1')->group(function () {
     Route::post('contact', [ContactController::class, 'sendMessage']);
 
     // Product routes with currency middleware
-    Route::middleware('currency')->group(function () {
+    Route::middleware('currency')->group(function() {
         Route::get('products', [ProductController::class, 'index']);
         Route::get('products/popular', [ProductController::class, 'popular']);
         Route::get('products/featured', [ProductController::class, 'featured']);
@@ -142,7 +144,7 @@ Route::prefix('v1')->group(function () {
     Route::get('orders/{order_number}/payment-details', [OrderController::class, 'getPaymentDetails']);
 
     // Shopping Cart endpoints (PÚBLICOS con autenticación flexible)
-    Route::prefix('cart')->middleware('cart')->group(function () {
+    Route::prefix('cart')->middleware('cart')->group(function() {
         Route::get('/', [CartController::class, 'show']);
         Route::post('/items', [CartController::class, 'addItem']);
         Route::put('/items/{item}', [CartController::class, 'updateItem']);
@@ -151,15 +153,24 @@ Route::prefix('v1')->group(function () {
         Route::post('/mark-abandoned', [CartController::class, 'markAsAbandoned'])->middleware('throttle:10,1');
 
         // Endpoints que requieren autenticación OBLIGATORIA
-        Route::middleware('auth:sanctum')->group(function () {
+        Route::middleware('auth:sanctum')->group(function() {
             Route::post('/items/{item}/save-for-later', [CartController::class, 'saveForLater']);
             Route::get('/saved-items', [CartController::class, 'savedItems']);
             Route::post('/items/{item}/move-to-cart', [CartController::class, 'moveToCart']);
         });
     });
 
+    Route::prefix('check-out-items')->group(function() {
+        Route::get('/', [CheckOutItemsController::class, 'index']);
+    });
+
+    // Promoción Amex
+    Route::prefix('promotions')->group(function() {
+        Route::post('amex-new-client', AmexNewClientController::class);
+    });
+
     // TODAS las demás rutas requieren autenticación
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware('auth:sanctum')->group(function() {
 
         // Analytics endpoints (TODOS requieren autenticación)
         Route::get('analytics/dashboard', [AnalyticsController::class, 'dashboard']);
@@ -175,8 +186,10 @@ Route::prefix('v1')->group(function () {
         Route::post('analytics/mark-abandoned-carts', [AnalyticsController::class, 'markAbandonedCarts']);
 
         // Tracking endpoints (requieren autenticación)
-        Route::post('analytics/track-page-view', [AnalyticsController::class, 'trackPageView'])->middleware('throttle:100,1');
-        Route::post('analytics/track-cart-abandonment', [AnalyticsController::class, 'trackCartAbandonment'])->middleware('throttle:50,1');
+        Route::post('analytics/track-page-view', [AnalyticsController::class, 'trackPageView'])
+            ->middleware('throttle:100,1');
+        Route::post('analytics/track-cart-abandonment', [AnalyticsController::class, 'trackCartAbandonment'])
+            ->middleware('throttle:50,1');
         Route::get('settings', [SettingsController::class, 'index']);
         Route::get('settings/app-info', [SettingsController::class, 'appInfo']);
         Route::get('settings/marketplace', [SettingsController::class, 'marketplaceSettings']);
@@ -227,69 +240,69 @@ Route::prefix('v1')->group(function () {
         Route::delete('stores/{store}/languages/{languageId}', [StoreController::class, 'removeLanguage']);
 
         // Store currencies management
-    Route::get('stores/{store}/currencies', [StoreController::class, 'getCurrencies']);
-    Route::post('stores/{store}/currencies', [StoreController::class, 'addCurrencies']);
-    Route::delete('stores/{store}/currencies/{currencyId}', [StoreController::class, 'removeCurrency']);
+        Route::get('stores/{store}/currencies', [StoreController::class, 'getCurrencies']);
+        Route::post('stores/{store}/currencies', [StoreController::class, 'addCurrencies']);
+        Route::delete('stores/{store}/currencies/{currencyId}', [StoreController::class, 'removeCurrency']);
 
-    // Languages endpoints
-    Route::apiResource('languages', LanguageController::class);
+        // Languages endpoints
+        Route::apiResource('languages', LanguageController::class);
 
-    // Currencies endpoints
-    Route::apiResource('currencies', CurrencyController::class);
+        // Currencies endpoints
+        Route::apiResource('currencies', CurrencyController::class);
 
-    // Exchange rates endpoints
-    Route::get('exchange-rates/convert', [ExchangeRateController::class, 'convert']);
-    Route::apiResource('exchange-rates', ExchangeRateController::class);
+        // Exchange rates endpoints
+        Route::get('exchange-rates/convert', [ExchangeRateController::class, 'convert']);
+        Route::apiResource('exchange-rates', ExchangeRateController::class);
 
-    // Translations endpoints
-    Route::apiResource('translations', TranslationController::class);
-    Route::get('translations/by-language/{languageCode}', [TranslationController::class, 'getByLanguage']);
-    Route::post('translations/bulk', [TranslationController::class, 'bulkStore']);
+        // Translations endpoints
+        Route::apiResource('translations', TranslationController::class);
+        Route::get('translations/by-language/{languageCode}', [TranslationController::class, 'getByLanguage']);
+        Route::post('translations/bulk', [TranslationController::class, 'bulkStore']);
 
-    // Store Configurations endpoints
-    Route::apiResource('store-configurations', StoreConfigurationController::class);
-    Route::get('store-configurations/by-store/{storeId}', [StoreConfigurationController::class, 'getByStore']);
-    Route::post('store-configurations/bulk', [StoreConfigurationController::class, 'bulkStore']);
+        // Store Configurations endpoints
+        Route::apiResource('store-configurations', StoreConfigurationController::class);
+        Route::get('store-configurations/by-store/{storeId}', [StoreConfigurationController::class, 'getByStore']);
+        Route::post('store-configurations/bulk', [StoreConfigurationController::class, 'bulkStore']);
 
-    // Categories endpoints (admin only)
-    Route::get('categories/stats', [CategoryController::class, 'getStats']);
-    Route::get('categories/by-store/{storeId}', [CategoryController::class, 'getByStore']);
-    Route::post('categories', [CategoryController::class, 'store']);
-    Route::put('categories/{category}', [CategoryController::class, 'update']);
-    Route::delete('categories/{category}', [CategoryController::class, 'destroy']);
+        // Categories endpoints (admin only)
+        Route::get('categories/stats', [CategoryController::class, 'getStats']);
+        Route::get('categories/by-store/{storeId}', [CategoryController::class, 'getByStore']);
+        Route::post('categories', [CategoryController::class, 'store']);
+        Route::put('categories/{category}', [CategoryController::class, 'update']);
+        Route::delete('categories/{category}', [CategoryController::class, 'destroy']);
 
-    // Products endpoints (admin only)
-    Route::get('products/stats', [ProductController::class, 'getStats']);
-    Route::post('products/clear-cache', [ProductController::class, 'clearCache']);
-    Route::get('products/by-store/{storeId}', [ProductController::class, 'getByStore']);
-    Route::get('products/by-sku-id/{skuId}', [ProductController::class, 'showBySkuId']);
-    Route::post('products', [ProductController::class, 'store']);
-    Route::put('products/{id}', [ProductController::class, 'update']);
-    Route::delete('products/{id}', [ProductController::class, 'destroy']);
+        // Products endpoints (admin only)
+        Route::get('products/stats', [ProductController::class, 'getStats']);
+        Route::post('products/clear-cache', [ProductController::class, 'clearCache']);
+        Route::get('products/by-store/{storeId}', [ProductController::class, 'getByStore']);
+        Route::get('products/by-sku-id/{skuId}', [ProductController::class, 'showBySkuId']);
+        Route::post('products', [ProductController::class, 'store']);
+        Route::put('products/{id}', [ProductController::class, 'update']);
+        Route::delete('products/{id}', [ProductController::class, 'destroy']);
 
-    // Users endpoints
-    Route::apiResource('users', UserController::class);
-    Route::get('users/{user}/permissions', [UserController::class, 'permissions']);
-    Route::post('users/{user}/roles', [UserController::class, 'assignRoles']);
-    Route::delete('users/{user}/roles/{roleId}', [UserController::class, 'removeRole']);
+        // Users endpoints
+        Route::apiResource('users', UserController::class);
+        Route::get('users/{user}/permissions', [UserController::class, 'permissions']);
+        Route::post('users/{user}/roles', [UserController::class, 'assignRoles']);
+        Route::delete('users/{user}/roles/{roleId}', [UserController::class, 'removeRole']);
 
-    // User Profile endpoints
-    Route::get('user/profile-data', [UserController::class, 'getProfileData']);
-    Route::post('user/profile', [UserController::class, 'updateProfile']);
-    Route::delete('user/profile', [UserController::class, 'deleteProfile']);    // Roles endpoints
-    Route::apiResource('roles', RoleController::class);
-    Route::get('roles/{role}/permissions', [RoleController::class, 'permissions']);
-    Route::post('roles/{role}/permissions', [RoleController::class, 'assignPermissions']);
-    Route::delete('roles/{role}/permissions/{permissionId}', [RoleController::class, 'removePermission']);
-    Route::get('roles/{role}/users', [RoleController::class, 'users']);
+        // User Profile endpoints
+        Route::get('user/profile-data', [UserController::class, 'getProfileData']);
+        Route::post('user/profile', [UserController::class, 'updateProfile']);
+        Route::delete('user/profile', [UserController::class, 'deleteProfile']);    // Roles endpoints
+        Route::apiResource('roles', RoleController::class);
+        Route::get('roles/{role}/permissions', [RoleController::class, 'permissions']);
+        Route::post('roles/{role}/permissions', [RoleController::class, 'assignPermissions']);
+        Route::delete('roles/{role}/permissions/{permissionId}', [RoleController::class, 'removePermission']);
+        Route::get('roles/{role}/users', [RoleController::class, 'users']);
 
-    // Permissions endpoints
-    Route::get('permissions/groups', [PermissionController::class, 'groups']);
-    Route::apiResource('permissions', PermissionController::class);
-    Route::get('permissions/{permission}/roles', [PermissionController::class, 'roles']);
+        // Permissions endpoints
+        Route::get('permissions/groups', [PermissionController::class, 'groups']);
+        Route::apiResource('permissions', PermissionController::class);
+        Route::get('permissions/{permission}/roles', [PermissionController::class, 'roles']);
 
         // Microsoft Accounts endpoints
-        Route::prefix('microsoft-accounts')->group(function () {
+        Route::prefix('microsoft-accounts')->group(function() {
             Route::get('/', [MicrosoftAccountController::class, 'index']);
             Route::post('/', [MicrosoftAccountController::class, 'store']);
             Route::get('{id}', [MicrosoftAccountController::class, 'show']);
@@ -309,7 +322,7 @@ Route::prefix('v1')->group(function () {
         Route::post('billing-information/{id}/set-default', [BillingInformationController::class, 'setDefault']);
 
         // Users management endpoints
-        Route::prefix('users')->group(function () {
+        Route::prefix('users')->group(function() {
             Route::get('/', [UserController::class, 'index']);
             Route::get('{id}', [UserController::class, 'show']);
             Route::put('{id}', [UserController::class, 'update']);
@@ -321,7 +334,7 @@ Route::prefix('v1')->group(function () {
         });
 
         // Payment Cards endpoints (Secure payment card management)
-        Route::prefix('payment-cards')->group(function () {
+        Route::prefix('payment-cards')->group(function() {
             Route::get('/', [PaymentCardController::class, 'index']);
             Route::post('/', [PaymentCardController::class, 'store']);
             Route::get('validate-expiration', [PaymentCardController::class, 'validateExpiration']);
@@ -334,7 +347,7 @@ Route::prefix('v1')->group(function () {
         });
 
         // MITEC Payment Gateway endpoints (Secure payment processing)
-        Route::prefix('payments/mitec')->group(function () {
+        Route::prefix('payments/mitec')->group(function() {
             Route::post('process', [MitecPaymentController::class, 'processPayment']);
             Route::get('sessions/{reference}', [MitecPaymentController::class, 'getPaymentSession']);
             Route::post('process-token', [MitecPaymentController::class, 'processToken']);
@@ -342,41 +355,48 @@ Route::prefix('v1')->group(function () {
         });
 
         // Orders endpoints (Order management)
-        Route::prefix('orders')->group(function () {
+        Route::prefix('orders')->group(function() {
             Route::get('/', [OrderController::class, 'index']);
             Route::post('/', [OrderController::class, 'store']);
             Route::get('statistics', [OrderController::class, 'statistics']);
             Route::get('{id}', [OrderController::class, 'show']);
             Route::put('{id}/cancel', [OrderController::class, 'cancel']);
             Route::post('{id}/process-microsoft', [OrderController::class, 'processMicrosoft']);
-            Route::post('{id}/provision', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'processOrder']);
+            Route::post('{id}/provision',
+                [\App\Http\Controllers\Api\OrderProvisioningController::class, 'processOrder']);
         });
 
         // Order Provisioning endpoints (Partner Center integration)
-        Route::prefix('orders/provisioning')->group(function () {
-            Route::post('process/{order_id}', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'processOrder']);
+        Route::prefix('orders/provisioning')->group(function() {
+            Route::post('process/{order_id}',
+                [\App\Http\Controllers\Api\OrderProvisioningController::class, 'processOrder']);
             Route::get('pending', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'getPendingOrders']);
-            Route::post('batch-process', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'batchProcessOrders']);
-            Route::get('{order_id}/status', [\App\Http\Controllers\Api\OrderProvisioningController::class, 'getOrderStatus']);
+            Route::post('batch-process',
+                [\App\Http\Controllers\Api\OrderProvisioningController::class, 'batchProcessOrders']);
+            Route::get('{order_id}/status',
+                [\App\Http\Controllers\Api\OrderProvisioningController::class, 'getOrderStatus']);
         });
-
     }); // Cierre del middleware auth:sanctum
 
     // Electronic invoice routes
-    Route::prefix('invoices')->name('invoices.')->group(function () {
+    Route::prefix('invoices')->name('invoices.')->group(function() {
         // Public routes
         Route::get('test-connection', [\App\Http\Controllers\InvoiceController::class, 'testConnection'])->name('test');
 
         // Quick invoice generation route (for testing/development)
-        Route::post('generate-from-order/{orderId}', [\App\Http\Controllers\InvoiceController::class, 'generateFromOrderId'])->name('generate.from.order');
+        Route::post('generate-from-order/{orderId}',
+            [\App\Http\Controllers\InvoiceController::class, 'generateFromOrderId'])->name('generate.from.order');
 
         // Public download routes (no auth required)
-        Route::get('{id}/download/pdf', [\App\Http\Controllers\InvoiceController::class, 'downloadPdf'])->name('download.pdf');
-        Route::get('{id}/download/xml', [\App\Http\Controllers\InvoiceController::class, 'downloadXml'])->name('download.xml');
+        Route::get('{id}/download/pdf', [\App\Http\Controllers\InvoiceController::class, 'downloadPdf'])
+            ->name('download.pdf');
+        Route::get('{id}/download/xml', [\App\Http\Controllers\InvoiceController::class, 'downloadXml'])
+            ->name('download.xml');
 
         // Protected routes that require authentication
-        Route::middleware('auth:sanctum')->group(function () {
-            Route::post('generate', [\App\Http\Controllers\InvoiceController::class, 'generateInvoice'])->name('generate');
+        Route::middleware('auth:sanctum')->group(function() {
+            Route::post('generate', [\App\Http\Controllers\InvoiceController::class, 'generateInvoice'])
+                ->name('generate');
             Route::get('/', [\App\Http\Controllers\InvoiceController::class, 'index'])->name('index');
             Route::get('{id}', [\App\Http\Controllers\InvoiceController::class, 'show'])->name('show');
             Route::post('{id}/cancel', [\App\Http\Controllers\InvoiceController::class, 'cancel'])->name('cancel');
@@ -385,9 +405,11 @@ Route::prefix('v1')->group(function () {
     });
 
     // Test routes for purchase confirmations (for development/testing)
-    Route::prefix('test')->name('test.')->group(function () {
-        Route::post('purchase-confirmations', [\App\Http\Controllers\Api\TestPurchaseConfirmationController::class, 'testConfirmations'])->name('purchase.confirmations');
-        Route::get('test-order', [\App\Http\Controllers\Api\TestPurchaseConfirmationController::class, 'getTestOrder'])->name('order');
+    Route::prefix('test')->name('test.')->group(function() {
+        Route::post('purchase-confirmations',
+            [\App\Http\Controllers\Api\TestPurchaseConfirmationController::class, 'testConfirmations'])
+            ->name('purchase.confirmations');
+        Route::get('test-order', [\App\Http\Controllers\Api\TestPurchaseConfirmationController::class, 'getTestOrder'])
+            ->name('order');
     });
-
 }); // End v1 route group

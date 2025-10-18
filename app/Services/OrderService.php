@@ -30,7 +30,7 @@ class OrderService
      */
     public function createOrderFromCart(Cart $cart, PaymentResponse $paymentResponse, ?PaymentSession $paymentSession = null): Order
     {
-        return DB::transaction(function () use ($cart, $paymentResponse, $paymentSession) {
+        $order = DB::transaction(function () use ($cart, $paymentResponse, $paymentSession) {
 
             Log::info('Creando orden desde carrito', [
                 'cart_id' => $cart->id,
@@ -86,14 +86,26 @@ class OrderService
             Log::info('Orden creada exitosamente', [
                 'order_id' => $order->id,
                 'order_number' => $order->order_number,
-                'total_amount' => $order->total_amount
+                'total_amount' => $order->total_amount,
+                'payment_response_updated' => true // Indicar que se actualizó el PaymentResponse
             ]);
 
-            // Enviar confirmaciones de compra después de crear la orden
-            $this->sendPurchaseConfirmations($order, $paymentResponse);
+            return $order; // Retornar la orden ANTES de enviar emails
 
-            return $order;
-        });
+        }); // Fin de la transacción DB - Commit aquí
+
+        // Enviar confirmaciones FUERA de la transacción para no bloquearla
+        try {
+            $this->sendPurchaseConfirmations($order, $paymentResponse);
+        } catch (\Exception $e) {
+            Log::error('Error enviando confirmaciones de compra', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage()
+            ]);
+            // No lanzar excepción, solo loguear el error
+        }
+
+        return $order;
     }
 
     /**

@@ -27,10 +27,8 @@ class ContactFormMail extends Mailable
      */
     public function envelope(): Envelope
     {
-        return new Envelope(
-            subject: 'Nuevo mensaje de contacto: ' . $this->contactData['subject'],
-            replyTo: $this->contactData['email']
-        );
+        return new Envelope(subject: 'Nuevo mensaje de contacto: ' . $this->contactData['subject'],
+            replyTo: $this->contactData['email']);
     }
 
     /**
@@ -38,16 +36,14 @@ class ContactFormMail extends Mailable
      */
     public function content(): Content
     {
-        return new Content(
-            view: 'emails.contact-form',
-            with: [
-                'name' => $this->contactData['name'],
-                'email' => $this->contactData['email'],
-                'phone' => $this->contactData['phone'],
-                'subject' => $this->contactData['subject'],
+        return new Content(view: 'emails.contact-form', with: [
+                'name'           => $this->contactData['name'],
+                'email'          => $this->contactData['email'],
+                'companyName'    => $this->contactData['company_name'],
+                'phone'          => $this->contactData['phone'],
+                'subject'        => $this->contactData['subject'],
                 'contactMessage' => $this->contactData['message'],
-            ]
-        );
+            ]);
     }
 
     /**

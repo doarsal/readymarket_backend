@@ -82,6 +82,13 @@
                 <span class="field-value">{{ $name }}</span>
             </div>
 
+            @if($companyName)
+            <div class="field">
+                <span class="field-label">Nombre de la empresa:</span>
+                <span class="field-value">{{ $companyName }}</span>
+            </div>
+            @endif
+
             <div class="field">
                 <span class="field-label">Correo electrónico:</span>
                 <span class="field-value">{{ $email }}</span>
