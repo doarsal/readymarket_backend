@@ -38,6 +38,7 @@ return [
         // URLs de producción
         'https://readymarket.readymind.mx',  // Frontend de producción
         'https://readymarket-backend.readymind.mx',  // Backend de producción
+        'https://myreadymarket.com',
     ],
 
     'allowed_origins_patterns' => [],

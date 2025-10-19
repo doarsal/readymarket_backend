@@ -38,6 +38,21 @@ class MitecPaymentService
     public function processPayment(array $paymentData, ?int $userId = null, ?int $cartId = null): array
     {
         try {
+            // LOG: Ver todos los datos que llegan al servicio
+            Log::info('🔍 MITEC PaymentService - Datos recibidos del controlador', [
+                'paymentData_keys' => array_keys($paymentData),
+                'has_card_name' => isset($paymentData['card_name']),
+                'card_name_value' => $paymentData['card_name'] ?? 'NO_EXISTE',
+                'has_card_number' => isset($paymentData['card_number']),
+                'has_cvv' => isset($paymentData['cvv']),
+                'has_exp_month' => isset($paymentData['exp_month']),
+                'has_exp_year' => isset($paymentData['exp_year']),
+                'has_billing_email' => isset($paymentData['billing_email']),
+                'has_billing_phone' => isset($paymentData['billing_phone']),
+                'user_id' => $userId,
+                'cart_id' => $cartId,
+            ]);
+
             // Si no viene amount en los datos, calcularlo desde el carrito
             if (empty($paymentData['amount']) && $cartId) {
                 $cart = \App\Models\Cart::find($cartId);
@@ -101,7 +116,7 @@ class MitecPaymentService
             $billingData = [
                 'phone' => $validatedData['billing_phone'] ?? null,
                 'email' => $validatedData['billing_email'] ?? null,
-                'ip' => '187.184.10.88' // IP fija para pruebas con MITEC
+                'ip' => $validatedData['browser_ip'] ?? request()->ip() ?? '187.184.8.88' // IP del cliente o fallback
             ];
 
             // Construir XML de transacción
@@ -213,9 +228,10 @@ class MitecPaymentService
     protected function generatePaymentForm(string $formXml): string
     {
         $actionUrl = env('MITEC_3DS_URL');
-        // NO escapar el XML - MITEC necesita el XML sin escapar
-        // Solo escapar las comillas dentro del XML si las hay
-        $xmlForForm = str_replace('"', '&quot;', $formXml);
+        
+        // Usar htmlspecialchars() igual que el sistema viejo
+        // El navegador decodifica las entities antes de enviar el POST
+        $xmlForForm = htmlspecialchars($formXml, ENT_QUOTES, 'UTF-8');
 
         return '<!doctype html>
 <html lang="es">

@@ -28,7 +28,9 @@ class MitecXmlBuilderService
 
         // Configuraciones desde .env (sin config file intermedio)
         $responseUrl = env('MITEC_RESPONSE_URL') . '?token=' . $reference;
-        $browserIP = env('MITEC_TEST_IP');
+        
+        // IMPORTANTE: Usar valores EXACTOS como generate_mitec_data.php que SÍ FUNCIONA
+        $browserIP = $billingData['ip'] ?? '187.184.8.88'; // IP fija como en generate_mitec_data.php
         $cobro = env('MITEC_DEFAULT_COBRO');
         $currency = $transactionData['currency'] ?? env('MITEC_DEFAULT_CURRENCY');
 
@@ -41,8 +43,15 @@ class MitecXmlBuilderService
             'password' => env('MITEC_BS_PWD'),
         ];
 
-        // Construir XML EXACTO como en el frontend que funciona
-        $xmlBody = <<<XML
+        // Usar valores originales SIN modificar
+        $amount = number_format($transactionData['amount'], 2, '.', '');
+        $cardName = strtoupper(trim($cardData['name']));
+        
+        // IMPORTANTE: Usar HEREDOC EXACTAMENTE como generate_mitec_data.php que SÍ FUNCIONA
+        // Este formato CON saltos de línea es el que MITEC acepta
+        $xml = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<TRANSACTION3DS>
 <business>
 <bs_idCompany>{$businessData['id_company']}</bs_idCompany>
 <bs_idBranch>{$businessData['id_branch']}</bs_idBranch>
@@ -53,10 +62,10 @@ class MitecXmlBuilderService
 <transaction>
 <tx_merchant>{$merchant}</tx_merchant>
 <tx_reference>{$reference}</tx_reference>
-<tx_amount>{$transactionData['amount']}</tx_amount>
+<tx_amount>{$amount}</tx_amount>
 <tx_currency>{$currency}</tx_currency>
 <creditcard>
-<cc_name>{$cardData['name']}</cc_name>
+<cc_name>{$cardName}</cc_name>
 <cc_number>{$cardData['card_number']}</cc_number>
 <cc_expMonth>{$cardData['exp_month']}</cc_expMonth>
 <cc_expYear>{$cardData['exp_year']}</cc_expYear>
@@ -70,18 +79,24 @@ class MitecXmlBuilderService
 <tx_cobro>{$cobro}</tx_cobro>
 <tx_browserIP>{$browserIP}</tx_browserIP>
 </transaction>
+</TRANSACTION3DS>
 XML;
 
-        $xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<TRANSACTION3DS>\n{$xmlBody}\n</TRANSACTION3DS>";
+        // Log para verificar el XML generado
+        Log::info('📋 MITEC XML GENERADO (FORMATO HEREDOC CON SALTOS DE LÍNEA)', [
+            'reference' => $reference,
+            'merchant' => $merchant,
+            'amount' => $amount,
+            'xml_length' => strlen($xml),
+            'xml_lines' => substr_count($xml, "\n"),
+            'xml_completo' => $xml,
+            'card_name' => $cardName,
+            'card_number_preview' => substr($cardData['card_number'], 0, 6) . '...',
+            'billing_phone' => $billingData['phone'],
+            'billing_email' => $billingData['email']
+        ]);
 
-        // Log solo para debugging en desarrollo (sin datos sensibles)
-        if (config('app.debug')) {
-            Log::info('MITEC XML generado para transacción', [
-                'reference' => $reference,
-                'merchant' => $merchant,
-                'amount' => $transactionData['amount']
-            ]);
-        }        return $xml;
+        return $xml;
     }
 
     /**
