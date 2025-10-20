@@ -149,6 +149,7 @@ Route::prefix('v1')->group(function() {
         Route::post('/items', [CartController::class, 'addItem']);
         Route::put('/items/{item}', [CartController::class, 'updateItem']);
         Route::delete('/items/{item}', [CartController::class, 'removeItem']);
+        Route::put('/check-out-item/{cartCheckOutItem}', [CartController::class, 'updateCheckOutItem']);
         Route::delete('/clear', [CartController::class, 'clear']);
         Route::post('/mark-abandoned', [CartController::class, 'markAsAbandoned'])->middleware('throttle:10,1');
 

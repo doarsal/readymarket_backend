@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Models\Cart;
+use App\Models\CartCheckOutItem;
 use App\Models\CartItem;
+use App\Models\CheckOutItem;
 use App\Models\Product;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class CartService
 {
@@ -18,35 +20,33 @@ class CartService
         $user = auth()->guard('sanctum')->user();
 
         Log::info('CartService: getOrCreateCart called', [
-            'user_id' => $user?->id,
-            'is_authenticated' => $user !== null,
-            'cart_token_header' => request()->header('X-Cart-Token')
+            'user_id'           => $user?->id,
+            'is_authenticated'  => $user !== null,
+            'cart_token_header' => request()->header('X-Cart-Token'),
         ]);
 
         if ($user) {
             // Usuario autenticado: buscar por user_id
-            $cart = Cart::where('user_id', $user->id)
-                       ->where('status', 'active')
-                       ->first();
+            $cart = Cart::where('user_id', $user->id)->where('status', 'active')->first();
 
             Log::info('CartService: User authenticated, cart search result', [
-                'user_id' => $user->id,
+                'user_id'    => $user->id,
                 'cart_found' => $cart !== null,
-                'cart_id' => $cart?->id
+                'cart_id'    => $cart?->id,
             ]);
 
             if (!$cart) {
                 // Crear carrito para usuario autenticado
                 $cart = Cart::create([
-                    'user_id' => $user->id,
+                    'user_id'    => $user->id,
                     'cart_token' => Str::random(32),
-                    'status' => 'active',
+                    'status'     => 'active',
                     'expires_at' => now()->addDays(30),
                 ]);
 
                 Log::info('CartService: Created new cart for authenticated user', [
-                    'cart_id' => $cart->id,
-                    'cart_token' => $cart->cart_token
+                    'cart_id'    => $cart->id,
+                    'cart_token' => $cart->cart_token,
                 ]);
             }
         } else {
@@ -54,45 +54,54 @@ class CartService
             $cartToken = request()->header('X-Cart-Token');
 
             Log::info('CartService: Guest user, checking for existing cart', [
-                'cart_token' => $cartToken
+                'cart_token' => $cartToken,
             ]);
 
             if ($cartToken) {
-                $cart = Cart::where('cart_token', $cartToken)
-                           ->where('status', 'active')
-                           ->whereNull('user_id')
-                           ->first();
+                $cart = Cart::where('cart_token', $cartToken)->where('status', 'active')->whereNull('user_id')->first();
 
                 Log::info('CartService: Guest cart search result', [
                     'cart_token' => $cartToken,
                     'cart_found' => $cart !== null,
-                    'cart_id' => $cart?->id
+                    'cart_id'    => $cart?->id,
                 ]);
             }
 
             if (!isset($cart) || !$cart) {
                 // Crear carrito para invitado
                 $newCartToken = Str::random(32);
-                $cart = Cart::create([
-                    'user_id' => null,
+                $cart         = Cart::create([
+                    'user_id'    => null,
                     'cart_token' => $newCartToken,
-                    'status' => 'active',
+                    'status'     => 'active',
                     'expires_at' => now()->addDays(7),
                 ]);
 
                 Log::info('CartService: Created new cart for guest user', [
-                    'cart_id' => $cart->id,
+                    'cart_id'    => $cart->id,
                     'cart_token' => $cart->cart_token,
-                    'new_token' => $newCartToken
+                    'new_token'  => $newCartToken,
                 ]);
             }
         }
 
         Log::info('CartService: Returning cart', [
-            'cart_id' => $cart->id,
+            'cart_id'    => $cart->id,
             'cart_token' => $cart->cart_token,
-            'user_id' => $cart->user_id
+            'user_id'    => $cart->user_id,
         ]);
+
+        // Create CheckOutItems with Default True
+        $cartCheckOutItems = $cart->checkOutItems->pluck('id')->toArray();
+        CheckOutItem::active()->whereNotIn('id', $cartCheckOutItems)->each(function(CheckOutItem $item) use (
+            $cart,
+        ) {
+            CartCheckOutItem::updateOrCreate(['check_out_item_id' => $item->getKey(), 'cart_id' => $cart->id],
+                ['status' => $item->default]);
+        });
+
+        //Delete inactive items
+        $cart->checkOutItems()->notActive()->delete();
 
         return $cart;
     }
@@ -106,18 +115,13 @@ class CartService
 
         if ($user) {
             // Usuario autenticado: buscar por user_id (después del login/merge ya debe existir)
-            return Cart::where('user_id', $user->id)
-                      ->where('status', 'active')
-                      ->first();
+            return Cart::where('user_id', $user->id)->where('status', 'active')->first();
         } else {
             // Usuario invitado: usar cart_token si existe
             $cartToken = request()->header('X-Cart-Token');
 
             if ($cartToken) {
-                return Cart::where('cart_token', $cartToken)
-                          ->where('status', 'active')
-                          ->whereNull('user_id')
-                          ->first();
+                return Cart::where('cart_token', $cartToken)->where('status', 'active')->whereNull('user_id')->first();
             }
         }
 
@@ -129,7 +133,7 @@ class CartService
      */
     public function addItem(int $productId, int $quantity = 1): CartItem
     {
-        $cart = $this->getOrCreateCart();
+        $cart    = $this->getOrCreateCart();
         $product = Product::findOrFail($productId);
 
         // Verificar que el producto tiene precio válido
@@ -141,9 +145,9 @@ class CartService
 
         // Verificar si el item ya existe en el carrito
         $existingItem = CartItem::where('cart_id', $cart->id)
-                               ->where('product_id', $productId)
-                               ->where('status', 'active')
-                               ->first();
+            ->where('product_id', $productId)
+            ->where('status', 'active')
+            ->first();
 
         if ($existingItem) {
             // Actualizar cantidad únicamente
@@ -153,10 +157,10 @@ class CartService
         } else {
             // Crear nuevo item SIN precios almacenados
             $cartItem = CartItem::create([
-                'cart_id' => $cart->id,
+                'cart_id'    => $cart->id,
                 'product_id' => $productId,
-                'quantity' => $quantity,
-                'status' => 'active',
+                'quantity'   => $quantity,
+                'status'     => 'active',
             ]);
         }
 
@@ -170,12 +174,11 @@ class CartService
     {
         $cart = $this->getOrCreateCart();
 
-        $cartItem = CartItem::where('id', $cartItemId)
-                           ->where('cart_id', $cart->id)
-                           ->first();
+        $cartItem = CartItem::where('id', $cartItemId)->where('cart_id', $cart->id)->first();
 
         if ($cartItem) {
             $cartItem->delete();
+
             return true;
         }
 
@@ -196,6 +199,7 @@ class CartService
                 $cartItem->quantity = $quantity;
                 $cartItem->save();
             }
+
             return true;
         }
 
@@ -209,6 +213,7 @@ class CartService
     {
         $cart = $this->getOrCreateCart();
         CartItem::where('cart_id', $cart->id)->delete();
+
         return true;
     }
 
@@ -235,49 +240,50 @@ class CartService
 
         if (!$cart) {
             return [
-                'exists' => false,
-                'items_count' => 0,
-                'subtotal' => 0.00,
-                'total_amount' => 0.00,
+                'exists'        => false,
+                'items_count'   => 0,
+                'subtotal'      => 0.00,
+                'total_amount'  => 0.00,
                 'currency_code' => $this->getStoreCurrencyCode(),
-                'items' => []
+                'items'         => [],
             ];
         }
 
-        $cart->load(['items.product']);
+        $cart->load(['items.product'], ['checkOutItems']);
 
         // Usar los accessors del modelo que calculan dinámicamente
         return [
-            'exists' => true,
-            'cart_id' => $cart->id,
-            'user_id' => $cart->user_id,
-            'cart_token' => $cart->cart_token,
-            'items_count' => $cart->items->where('status', 'active')->sum('quantity'),
-            'subtotal' => $cart->subtotal, // Esto usa el accessor dinámico
-            'total_amount' => $cart->total_amount, // Esto usa el accessor dinámico
-            'currency_code' => $this->getStoreCurrencyCode(),
-            'items' => $cart->items->where('status', 'active')->map(function($item) {
+            'exists'          => true,
+            'cart_id'         => $cart->id,
+            'user_id'         => $cart->user_id,
+            'cart_token'      => $cart->cart_token,
+            'items_count'     => $cart->items->where('status', 'active')->sum('quantity'),
+            'subtotal'        => $cart->subtotal, // Esto usa el accessor dinámico
+            'total_amount'    => $cart->total_amount,
+            'currency_code'   => $this->getStoreCurrencyCode(),
+            'items'           => $cart->items->where('status', 'active')->map(function($item) {
                 return [
-                    'id' => $item->id,
-                    'product_id' => $item->product_id,
-                    'quantity' => $item->quantity,
-                    'unit_price' => number_format($item->unit_price, 2), // Accessor dinámico
-                    'total_price' => number_format($item->total_price, 2), // Accessor dinámico
+                    'id'            => $item->id,
+                    'product_id'    => $item->product_id,
+                    'quantity'      => $item->quantity,
+                    'unit_price'    => number_format($item->unit_price, 2), // Accessor dinámico
+                    'total_price'   => number_format($item->total_price, 2), // Accessor dinámico
                     'currency_code' => $this->getStoreCurrencyCode(),
-                    'product' => $item->product ? [
-                        'id' => $item->product->idproduct,
-                        'title' => $item->product->ProductTitle,
-                        'sku_title' => $item->product->SkuTitle,
-                        'publisher' => $item->product->Publisher,
-                        'icon' => $item->product->prod_icon,
-                        'unit_price_usd' => $item->product->UnitPrice, // Precio original en USD para referencia
-                        'erp_price_usd' => $item->product->ERPPrice, // Precio ERP original para referencia
+                    'product'       => $item->product ? [
+                        'id'                => $item->product->idproduct,
+                        'title'             => $item->product->ProductTitle,
+                        'sku_title'         => $item->product->SkuTitle,
+                        'publisher'         => $item->product->Publisher,
+                        'icon'              => $item->product->prod_icon,
+                        'unit_price_usd'    => $item->product->UnitPrice, // Precio original en USD para referencia
+                        'erp_price_usd'     => $item->product->ERPPrice, // Precio ERP original para referencia
                         'currency_original' => $item->product->Currency ?? 'USD',
-                        'billing_plan' => $item->product->BillingPlan,
-                        'term_duration' => $item->product->TermDuration,
-                    ] : null
+                        'billing_plan'      => $item->product->BillingPlan,
+                        'term_duration'     => $item->product->TermDuration,
+                    ] : null,
                 ];
-            })->values()
+            })->values(),
+            'check_out_items' => $cart->getCheckOutItems(),
         ];
     }
 
@@ -286,9 +292,9 @@ class CartService
      */
     private function getStoreCurrencyCode(): string
     {
-        $storeId = config('app.store_id', 1);
+        $storeId         = config('app.store_id', 1);
         $currencyService = app(\App\Services\CurrencyService::class);
-        $storeCurrency = $currencyService->getStoreCurrency($storeId);
+        $storeCurrency   = $currencyService->getStoreCurrency($storeId);
 
         return $storeCurrency ? $storeCurrency->code : 'MXN';
     }
@@ -307,31 +313,29 @@ class CartService
     public function convertGuestCartToUser(string $guestCartToken, int $userId): Cart
     {
         $guestCart = Cart::where('cart_token', $guestCartToken)
-                        ->where('status', 'active')
-                        ->whereNull('user_id')
-                        ->first();
+            ->where('status', 'active')
+            ->whereNull('user_id')
+            ->first();
 
         if ($guestCart) {
             // Verificar si el usuario ya tiene un carrito
-            $userCart = Cart::where('user_id', $userId)
-                           ->where('status', 'active')
-                           ->first();
+            $userCart = Cart::where('user_id', $userId)->where('status', 'active')->first();
 
             if ($userCart) {
                 // Mover items del carrito invitado al carrito del usuario
-                CartItem::where('cart_id', $guestCart->id)
-                       ->update(['cart_id' => $userCart->id]);
+                CartItem::where('cart_id', $guestCart->id)->update(['cart_id' => $userCart->id]);
 
                 // Eliminar carrito invitado
                 $guestCart->delete();
 
                 $this->updateCartTotals($userCart);
+
                 return $userCart;
             } else {
                 // Convertir carrito invitado a carrito de usuario
                 $guestCart->update([
-                    'user_id' => $userId,
-                    'expires_at' => now()->addDays(30)
+                    'user_id'    => $userId,
+                    'expires_at' => now()->addDays(30),
                 ]);
 
                 return $guestCart;
@@ -340,12 +344,12 @@ class CartService
 
         // Si no hay carrito invitado, crear uno nuevo para el usuario
         return Cart::create([
-            'user_id' => $userId,
-            'cart_token' => Str::random(32),
-            'status' => 'active',
-            'expires_at' => now()->addDays(30),
-            'subtotal' => 0.00,
-            'tax_amount' => 0.00,
+            'user_id'      => $userId,
+            'cart_token'   => Str::random(32),
+            'status'       => 'active',
+            'expires_at'   => now()->addDays(30),
+            'subtotal'     => 0.00,
+            'tax_amount'   => 0.00,
             'total_amount' => 0.00,
         ]);
     }
@@ -357,22 +361,20 @@ class CartService
     public function mergeCartOnLogin(int $userId, string $guestCartToken = null): Cart
     {
         Log::info('Starting cart merge on login', [
-            'user_id' => $userId,
-            'guest_cart_token' => $guestCartToken
+            'user_id'          => $userId,
+            'guest_cart_token' => $guestCartToken,
         ]);
 
         // 1. Buscar carrito existente del usuario autenticado
-        $userCart = Cart::where('user_id', $userId)
-                       ->where('status', 'active')
-                       ->first();
+        $userCart = Cart::where('user_id', $userId)->where('status', 'active')->first();
 
         // 2. Buscar carrito de invitado si se proporciona token
         $guestCart = null;
         if ($guestCartToken) {
             $guestCart = Cart::where('cart_token', $guestCartToken)
-                            ->where('status', 'active')
-                            ->whereNull('user_id')
-                            ->first();
+                ->where('status', 'active')
+                ->whereNull('user_id')
+                ->first();
         }
 
         // CASO 1: Usuario tiene carrito Y hay carrito de invitado con items
@@ -383,9 +385,9 @@ class CartService
             foreach ($guestCart->items as $guestItem) {
                 // Verificar si el producto ya existe en el carrito del usuario
                 $existingUserItem = CartItem::where('cart_id', $userCart->id)
-                                          ->where('product_id', $guestItem->product_id)
-                                          ->where('status', 'active')
-                                          ->first();
+                    ->where('product_id', $guestItem->product_id)
+                    ->where('status', 'active')
+                    ->first();
 
                 if ($existingUserItem) {
                     // Sumar cantidades si el producto ya existe
@@ -413,8 +415,8 @@ class CartService
 
             // Convertir carrito de invitado a carrito de usuario
             $guestCart->update([
-                'user_id' => $userId,
-                'expires_at' => now()->addDays(30)
+                'user_id'    => $userId,
+                'expires_at' => now()->addDays(30),
             ]);
 
             return $guestCart;
@@ -436,9 +438,9 @@ class CartService
         Log::info('Case 4: Creating new cart for user');
 
         return Cart::create([
-            'user_id' => $userId,
+            'user_id'    => $userId,
             'cart_token' => Str::random(32),
-            'status' => 'active',
+            'status'     => 'active',
             'expires_at' => now()->addDays(30),
         ]);
     }
@@ -448,10 +450,7 @@ class CartService
      */
     public function cleanupUserCarts(int $userId): void
     {
-        $activeCarts = Cart::where('user_id', $userId)
-                          ->where('status', 'active')
-                          ->orderBy('updated_at', 'desc')
-                          ->get();
+        $activeCarts = Cart::where('user_id', $userId)->where('status', 'active')->orderBy('updated_at', 'desc')->get();
 
         if ($activeCarts->count() > 1) {
             // Mantener solo el carrito más reciente
@@ -464,9 +463,9 @@ class CartService
                 foreach ($oldCart->items as $item) {
                     // Verificar si el producto ya existe en el carrito principal
                     $existingItem = CartItem::where('cart_id', $keepCart->id)
-                                          ->where('product_id', $item->product_id)
-                                          ->where('status', 'active')
-                                          ->first();
+                        ->where('product_id', $item->product_id)
+                        ->where('status', 'active')
+                        ->first();
 
                     if ($existingItem) {
                         // Sumar cantidades

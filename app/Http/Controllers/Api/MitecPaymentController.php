@@ -201,22 +201,6 @@ class MitecPaymentController extends Controller
                     ], 500);
                 }
 
-                // Agregar los check out items al cart si el payment esta correcto
-                if ($cart && $requestCheckOutItems = $request->get('check_out_items')) {
-                    $checkOutItems = Collection::make($requestCheckOutItems)->map(function($item) use ($cart) {
-                        return [
-                            'cart_id'           => $cart->getKey(),
-                            'check_out_item_id' => $item['id'],
-                            'created_at'        => Carbon::now(),
-                            'updated_at'        => Carbon::now(),
-                        ];
-                    })->all();
-
-                    $cart->checkOutItems()->detach();
-
-                    CartCheckOutItem::upsert($checkOutItems, ['cart_id', 'check_out_item_id'], ['updated_at']);
-                }
-
                 return response()->json([
                     'success'               => true,
                     'transaction_reference' => $result['transaction_reference'],

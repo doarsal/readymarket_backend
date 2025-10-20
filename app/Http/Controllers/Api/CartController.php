@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AddToCartRequest;
+use App\Http\Requests\Cart\CheckOutItem\UpdateRequest as UpdateCheckOutItemRequest;
 use App\Http\Requests\UpdateCartItemRequest;
 use App\Http\Traits\HasCurrencyConversion;
 use App\Models\Cart;
+use App\Models\CartCheckOutItem;
 use App\Models\CartItem;
 use App\Services\CartService;
 use Illuminate\Http\JsonResponse;
@@ -35,7 +37,7 @@ class CartController extends Controller
      */
     protected function getStoreCurrencyCode(): string
     {
-        $storeId = $this->getStoreId();
+        $storeId         = $this->getStoreId();
         $currencyService = $this->getCurrencyService();
 
         // Obtener la moneda por defecto de la tienda
@@ -79,36 +81,79 @@ class CartController extends Controller
     {
         try {
             // Usar getCartSummary para no crear carritos innecesarios
-            $cartSummary = $this->cartService->getCartSummary();
-            $taxRate = config('facturalo.taxes.iva.rate');
+            $cartSummary  = $this->cartService->getCartSummary();
+            $taxRate      = config('facturalo.taxes.iva.rate');
             $currencyCode = $this->getStoreCurrencyCode();
 
             return response()->json([
                 'success' => true,
-                'data' => [
-                    'id' => $cartSummary['exists'] ? $cartSummary['cart_id'] : null,
-                    'items' => $cartSummary['items'],
-                    'subtotal' => number_format($cartSummary['subtotal'], 2),
-                    'tax_amount' => number_format($cartSummary['subtotal'] * $taxRate, 2),
-                    'total_amount' => number_format($cartSummary['total_amount'], 2),
-                    'currency_code' => $currencyCode,
-                    'status' => $cartSummary['exists'] ? 'active' : 'empty',
-                    'cart_token' => $cartSummary['exists'] ? $cartSummary['cart_token'] : null,
+                'data'    => [
+                    'id'              => $cartSummary['exists'] ? $cartSummary['cart_id'] : null,
+                    'items'           => $cartSummary['items'],
+                    'check_out_items' => $cartSummary['check_out_items'],
+                    'subtotal'        => number_format($cartSummary['subtotal'], 2),
+                    'tax_amount'      => number_format($cartSummary['subtotal'] * $taxRate, 2),
+                    'total_amount'    => number_format($cartSummary['total_amount'], 2),
+                    'currency_code'   => $currencyCode,
+                    'status'          => $cartSummary['exists'] ? 'active' : 'empty',
+                    'cart_token'      => $cartSummary['exists'] ? $cartSummary['cart_token'] : null,
                 ],
             ], 200, [
-                'X-Cart-Token' => $cartSummary['exists'] ? $cartSummary['cart_token'] : ''
+                'X-Cart-Token' => $cartSummary['exists'] ? $cartSummary['cart_token'] : '',
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error al obtener carrito', [
-                'error' => $e->getMessage(),
-                'user_id' => auth()->id(),
-                'cart_token' => request()->header('X-Cart-Token')
+                'error'      => $e->getMessage(),
+                'user_id'    => auth()->id(),
+                'cart_token' => request()->header('X-Cart-Token'),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error interno del servidor. Por favor intenta de nuevo.'
+                'message' => 'Error interno del servidor. Por favor intenta de nuevo.',
+            ], 500);
+        }
+    }
+
+    public function updateCheckOutItem(UpdateCheckOutItemRequest $request, CartCheckOutItem $cartCheckOutItem): JsonResponse
+    {
+        try {
+            $status = !!$request->get('status');
+
+            $cartCheckOutItem->status = $status;
+            $cartCheckOutItem->save();
+
+            // Usar getCartSummary para no crear carritos innecesarios
+            $cartSummary  = $this->cartService->getCartSummary();
+            $taxRate      = config('facturalo.taxes.iva.rate');
+            $currencyCode = $this->getStoreCurrencyCode();
+
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'id'              => $cartSummary['exists'] ? $cartSummary['cart_id'] : null,
+                    'items'           => $cartSummary['items'],
+                    'check_out_items' => $cartSummary['check_out_items'],
+                    'subtotal'        => number_format($cartSummary['subtotal'], 2),
+                    'tax_amount'      => number_format($cartSummary['subtotal'] * $taxRate, 2),
+                    'total_amount'    => number_format($cartSummary['total_amount'], 2),
+                    'currency_code'   => $currencyCode,
+                    'status'          => $cartSummary['exists'] ? 'active' : 'empty',
+                    'cart_token'      => $cartSummary['exists'] ? $cartSummary['cart_token'] : null,
+                ],
+            ], 200, [
+                'X-Cart-Token' => $cartSummary['exists'] ? $cartSummary['cart_token'] : '',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error al updatear check out item en Carrito', [
+                'error'      => $e->getMessage(),
+                'user_id'    => auth()->id(),
+                'cart_token' => request()->header('X-Cart-Token'),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor. Por favor intenta de nuevo.',
             ], 500);
         }
     }
@@ -149,10 +194,7 @@ class CartController extends Controller
         try {
             $validated = $request->validated();
 
-            $cartItem = $this->cartService->addItem(
-                $validated['product_id'],
-                $validated['quantity'] ?? 1
-            );
+            $cartItem = $this->cartService->addItem($validated['product_id'], $validated['quantity'] ?? 1);
 
             $cartItem->load('product');
 
@@ -163,59 +205,59 @@ class CartController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Producto agregado al carrito.',
-                'data' => [
+                'data'    => [
                     'item' => [
-                        'id' => $cartItem->id,
-                        'product_id' => $cartItem->product_id,
-                        'quantity' => $cartItem->quantity,
-                        'unit_price' => number_format($cartItem->unit_price, 2),
+                        'id'          => $cartItem->id,
+                        'product_id'  => $cartItem->product_id,
+                        'quantity'    => $cartItem->quantity,
+                        'unit_price'  => number_format($cartItem->unit_price, 2),
                         'total_price' => number_format($cartItem->total_price, 2),
                     ],
                     'cart' => [
-                        'id' => $cart->id,
-                        'items' => $cart->items->where('status', 'active')->map(function($item) {
+                        'id'              => $cart->id,
+                        'items'           => $cart->items->where('status', 'active')->map(function($item) {
                             return [
-                                'id' => $item->id,
-                                'product_id' => $item->product_id,
-                                'quantity' => $item->quantity,
-                                'unit_price' => number_format($item->unit_price, 2),
+                                'id'          => $item->id,
+                                'product_id'  => $item->product_id,
+                                'quantity'    => $item->quantity,
+                                'unit_price'  => number_format($item->unit_price, 2),
                                 'total_price' => number_format($item->total_price, 2),
-                                'status' => $item->status,
-                                'product' => $item->product ? [
-                                    'id' => $item->product->idproduct,
-                                    'title' => $item->product->ProductTitle,
-                                    'sku_title' => $item->product->SkuTitle,
-                                    'description' => $item->product->SkuDescription,
-                                    'publisher' => $item->product->Publisher,
-                                    'icon' => $item->product->prod_icon,
-                                    'currency' => 'MXN', // Siempre MXN ya que los precios están convertidos
+                                'status'      => $item->status,
+                                'product'     => $item->product ? [
+                                    'id'                => $item->product->idproduct,
+                                    'title'             => $item->product->ProductTitle,
+                                    'sku_title'         => $item->product->SkuTitle,
+                                    'description'       => $item->product->SkuDescription,
+                                    'publisher'         => $item->product->Publisher,
+                                    'icon'              => $item->product->prod_icon,
+                                    'currency'          => 'MXN', // Siempre MXN ya que los precios están convertidos
                                     'original_currency' => $item->product->Currency, // USD original para referencia
-                                ] : null
+                                ] : null,
                             ];
                         })->values(),
-                        'subtotal' => number_format($cart->subtotal ?? 0, 2),
-                        'tax_amount' => number_format($cart->tax_amount ?? 0, 2),
-                        'total_amount' => number_format($cart->total_amount ?? 0, 2),
-                        'currency_code' => $this->getStoreCurrencyCode(),
-                        'status' => $cart->status,
-                        'cart_token' => $cart->cart_token,
-                    ]
-                ]
+                        'check_out_items' => $cart->getCheckOutItems(),
+                        'subtotal'        => number_format($cart->subtotal ?? 0, 2),
+                        'tax_amount'      => number_format($cart->tax_amount ?? 0, 2),
+                        'total_amount'    => number_format($cart->total_amount ?? 0, 2),
+                        'currency_code'   => $this->getStoreCurrencyCode(),
+                        'status'          => $cart->status,
+                        'cart_token'      => $cart->cart_token,
+                    ],
+                ],
             ], 201, [
-                'X-Cart-Token' => $cart->cart_token
+                'X-Cart-Token' => $cart->cart_token,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Cart: Error adding item', [
-                'error' => $e->getMessage(),
-                'data' => $request->validated(),
+                'error'   => $e->getMessage(),
+                'data'    => $request->validated(),
                 'user_id' => auth()->id(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error al agregar el producto al carrito.',
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -261,58 +303,57 @@ class CartController extends Controller
                 $queryTime = microtime(true);
 
                 // Optimización: Una sola query en lugar de múltiples loads
-                $cart = Cart::with(['items.product'])
-                    ->where('id', $item->cart_id)
-                    ->first();
+                $cart = Cart::with(['items.product'])->where('id', $item->cart_id)->first();
 
                 $loadTime = microtime(true);
 
                 Log::info('Cart update performance', [
-                    'total_time' => ($loadTime - $startTime) * 1000 . 'ms',
+                    'total_time'   => ($loadTime - $startTime) * 1000 . 'ms',
                     'service_time' => ($queryTime - $startTime) * 1000 . 'ms',
-                    'load_time' => ($loadTime - $queryTime) * 1000 . 'ms'
+                    'load_time'    => ($loadTime - $queryTime) * 1000 . 'ms',
                 ]);
 
                 return response()->json([
                     'success' => true,
                     'message' => 'Item actualizado correctamente.',
-                    'data' => [
+                    'data'    => [
                         'item' => [
-                            'id' => $item->id,
-                            'product_id' => $item->product_id,
-                            'quantity' => $validated['quantity'], // Usar valor actualizado
-                            'unit_price' => number_format($item->unit_price, 2),
+                            'id'          => $item->id,
+                            'product_id'  => $item->product_id,
+                            'quantity'    => $validated['quantity'], // Usar valor actualizado
+                            'unit_price'  => number_format($item->unit_price, 2),
                             'total_price' => number_format($validated['quantity'] * $item->unit_price, 2),
                         ],
                         'cart' => [
-                            'id' => $cart->id,
-                            'items' => $cart->items->where('status', 'active')->map(function($cartItem) {
+                            'id'              => $cart->id,
+                            'items'           => $cart->items->where('status', 'active')->map(function($cartItem) {
                                 return [
-                                    'id' => $cartItem->id,
-                                    'product_id' => $cartItem->product_id,
-                                    'quantity' => $cartItem->quantity,
-                                    'unit_price' => number_format($cartItem->unit_price, 2),
+                                    'id'          => $cartItem->id,
+                                    'product_id'  => $cartItem->product_id,
+                                    'quantity'    => $cartItem->quantity,
+                                    'unit_price'  => number_format($cartItem->unit_price, 2),
                                     'total_price' => number_format($cartItem->total_price, 2),
-                                    'status' => $cartItem->status,
-                                    'product' => $cartItem->product ? [
-                                        'id' => $cartItem->product->idproduct,
-                                        'title' => $cartItem->product->ProductTitle,
-                                        'sku_title' => $cartItem->product->SkuTitle,
+                                    'status'      => $cartItem->status,
+                                    'product'     => $cartItem->product ? [
+                                        'id'          => $cartItem->product->idproduct,
+                                        'title'       => $cartItem->product->ProductTitle,
+                                        'sku_title'   => $cartItem->product->SkuTitle,
                                         'description' => $cartItem->product->SkuDescription,
-                                        'publisher' => $cartItem->product->Publisher,
-                                        'icon' => $cartItem->product->prod_icon,
-                                        'currency' => $cartItem->product->Currency,
-                                    ] : null
+                                        'publisher'   => $cartItem->product->Publisher,
+                                        'icon'        => $cartItem->product->prod_icon,
+                                        'currency'    => $cartItem->product->Currency,
+                                    ] : null,
                                 ];
                             })->values(),
-                            'subtotal' => number_format($cart->subtotal ?? 0, 2),
-                            'tax_amount' => number_format($cart->tax_amount ?? 0, 2),
-                            'total_amount' => number_format($cart->total_amount ?? 0, 2),
-                            'currency_code' => $this->getStoreCurrencyCode(),
-                            'status' => $cart->status,
-                            'cart_token' => $cart->cart_token,
-                        ]
-                    ]
+                            'check_out_items' => $cart->getCheckOutItems(),
+                            'subtotal'        => number_format($cart->subtotal ?? 0, 2),
+                            'tax_amount'      => number_format($cart->tax_amount ?? 0, 2),
+                            'total_amount'    => number_format($cart->total_amount ?? 0, 2),
+                            'currency_code'   => $this->getStoreCurrencyCode(),
+                            'status'          => $cart->status,
+                            'cart_token'      => $cart->cart_token,
+                        ],
+                    ],
                 ]);
             } else {
                 return response()->json([
@@ -320,18 +361,17 @@ class CartController extends Controller
                     'message' => 'No se pudo actualizar el item.',
                 ], 404);
             }
-
         } catch (\Exception $e) {
             Log::error('Cart: Error updating item', [
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
                 'item_id' => $item->id,
-                'data' => $request->validated(),
+                'data'    => $request->validated(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error al actualizar el item.',
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -375,36 +415,37 @@ class CartController extends Controller
                 return response()->json([
                     'success' => true,
                     'message' => 'Item eliminado del carrito.',
-                    'data' => [
+                    'data'    => [
                         'cart' => [
-                            'id' => $cart->id,
-                            'items' => $cart->items->where('status', 'active')->map(function($cartItem) {
+                            'id'              => $cart->id,
+                            'items'           => $cart->items->where('status', 'active')->map(function($cartItem) {
                                 return [
-                                    'id' => $cartItem->id,
-                                    'product_id' => $cartItem->product_id,
-                                    'quantity' => $cartItem->quantity,
-                                    'unit_price' => number_format($cartItem->unit_price, 2),
+                                    'id'          => $cartItem->id,
+                                    'product_id'  => $cartItem->product_id,
+                                    'quantity'    => $cartItem->quantity,
+                                    'unit_price'  => number_format($cartItem->unit_price, 2),
                                     'total_price' => number_format($cartItem->total_price, 2),
-                                    'status' => $cartItem->status,
-                                    'product' => $cartItem->product ? [
-                                        'id' => $cartItem->product->idproduct,
-                                        'title' => $cartItem->product->ProductTitle,
-                                        'sku_title' => $cartItem->product->SkuTitle,
+                                    'status'      => $cartItem->status,
+                                    'product'     => $cartItem->product ? [
+                                        'id'          => $cartItem->product->idproduct,
+                                        'title'       => $cartItem->product->ProductTitle,
+                                        'sku_title'   => $cartItem->product->SkuTitle,
                                         'description' => $cartItem->product->SkuDescription,
-                                        'publisher' => $cartItem->product->Publisher,
-                                        'icon' => $cartItem->product->prod_icon,
-                                        'currency' => $cartItem->product->Currency,
-                                    ] : null
+                                        'publisher'   => $cartItem->product->Publisher,
+                                        'icon'        => $cartItem->product->prod_icon,
+                                        'currency'    => $cartItem->product->Currency,
+                                    ] : null,
                                 ];
                             })->values(),
-                            'subtotal' => number_format($cart->subtotal ?? 0, 2),
-                            'tax_amount' => number_format($cart->tax_amount ?? 0, 2),
-                            'total_amount' => number_format($cart->total_amount ?? 0, 2),
-                            'currency_code' => $this->getStoreCurrencyCode(),
-                            'status' => $cart->status,
-                            'cart_token' => $cart->cart_token,
-                        ]
-                    ]
+                            'check_out_items' => $cart->getCheckOutItems(),
+                            'subtotal'        => number_format($cart->subtotal ?? 0, 2),
+                            'tax_amount'      => number_format($cart->tax_amount ?? 0, 2),
+                            'total_amount'    => number_format($cart->total_amount ?? 0, 2),
+                            'currency_code'   => $this->getStoreCurrencyCode(),
+                            'status'          => $cart->status,
+                            'cart_token'      => $cart->cart_token,
+                        ],
+                    ],
                 ]);
             } else {
                 return response()->json([
@@ -412,17 +453,16 @@ class CartController extends Controller
                     'message' => 'No se pudo eliminar el item.',
                 ], 404);
             }
-
         } catch (\Exception $e) {
             Log::error('Cart: Error removing item', [
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
                 'item_id' => $item->id,
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error al eliminar el item.',
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -451,23 +491,22 @@ class CartController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Carrito vaciado correctamente.',
-                'data' => [
-                    'items_count' => 0,
-                    'subtotal' => '0.00',
-                    'total_amount' => '0.00'
-                ]
+                'data'    => [
+                    'items_count'  => 0,
+                    'subtotal'     => '0.00',
+                    'total_amount' => '0.00',
+                ],
             ]);
-
         } catch (\Exception $e) {
             Log::error('Cart: Error clearing cart', [
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
                 'user_id' => auth()->id(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error al vaciar el carrito.',
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -483,40 +522,41 @@ class CartController extends Controller
             if (!$cart || $cart->items->isEmpty()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'No hay carrito para marcar como abandonado'
+                    'message' => 'No hay carrito para marcar como abandonado',
                 ], 404);
             }
 
             // Preparar datos para abandoned_carts
             $cartData = [
-                'user_id' => auth()->id(),
-                'session_id' => session()->getId() ?: 'guest_' . uniqid(),
-                'store_id' => $cart->store_id,
-                'visitor_ip' => $request->ip(),
-                'cart_items' => $cart->items->map(function ($item) {
+                'user_id'         => auth()->id(),
+                'session_id'      => session()->getId() ?: 'guest_' . uniqid(),
+                'store_id'        => $cart->store_id,
+                'visitor_ip'      => $request->ip(),
+                'cart_items'      => $cart->items->map(function($item) {
                     return [
-                        'product_id' => $item->product_id,
-                        'quantity' => $item->quantity,
-                        'unit_price' => $item->unit_price,
-                        'total_price' => $item->total_price,
+                        'product_id'   => $item->product_id,
+                        'quantity'     => $item->quantity,
+                        'unit_price'   => $item->unit_price,
+                        'total_price'  => $item->total_price,
                         'product_name' => $item->product->name ?? 'Producto',
-                        'product_sku' => $item->product->sku ?? null,
+                        'product_sku'  => $item->product->sku ?? null,
                     ];
                 })->toArray(),
-                'total_amount' => $cart->total_amount,
-                'tax_amount' => $cart->tax_amount,
+                'check_out_items' => $cart->getCheckOutItems(),
+                'total_amount'    => $cart->total_amount,
+                'tax_amount'      => $cart->tax_amount,
                 'shipping_amount' => $cart->shipping_amount,
-                'total_items' => $cart->items->sum('quantity'),
-                'currency' => $cart->currency ?? 'USD',
-                'user_email' => auth()->user()?->email ?? $request->input('user_email'),
-                'checkout_step' => $request->input('checkout_step', 'cart'),
-                'last_activity' => now(),
+                'total_items'     => $cart->items->sum('quantity'),
+                'currency'        => $cart->currency ?? 'USD',
+                'user_email'      => auth()->user()?->email ?? $request->input('user_email'),
+                'checkout_step'   => $request->input('checkout_step', 'cart'),
+                'last_activity'   => now(),
                 'user_agent_data' => [
-                    'user_agent' => $request->userAgent(),
-                    'device_type' => $this->detectDeviceType($request->userAgent())
+                    'user_agent'  => $request->userAgent(),
+                    'device_type' => $this->detectDeviceType($request->userAgent()),
                 ],
-                'referrer_url' => $request->header('referer'),
-                'abandon_reason' => $request->input('abandon_reason', [])
+                'referrer_url'    => $request->header('referer'),
+                'abandon_reason'  => $request->input('abandon_reason', []),
             ];
 
             // Crear registro en abandoned_carts
@@ -524,29 +564,28 @@ class CartController extends Controller
 
             // Opcional: Marcar el carrito original como abandonado
             $cart->update([
-                'status' => 'abandoned',
-                'abandoned_at' => now()
+                'status'       => 'abandoned',
+                'abandoned_at' => now(),
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Carrito marcado como abandonado',
-                'data' => [
+                'data'    => [
                     'abandoned_cart_id' => $abandonedCart->id,
-                    'recovery_token' => $abandonedCart->recovery_token
-                ]
+                    'recovery_token'    => $abandonedCart->recovery_token,
+                ],
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error al marcar carrito como abandonado', [
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
                 'user_id' => auth()->id(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error al marcar carrito como abandonado',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -564,27 +603,24 @@ class CartController extends Controller
             } else {
                 // Buscar por usuario y session reciente
                 $query->where(function($q) {
-                    $q->where('user_id', auth()->id())
-                      ->orWhere('session_id', session()->getId());
-                })
-                ->where('created_at', '>=', now()->subHours(24)); // Solo últimas 24 horas
+                    $q->where('user_id', auth()->id())->orWhere('session_id', session()->getId());
+                })->where('created_at', '>=', now()->subHours(24)); // Solo últimas 24 horas
             }
 
             $abandonedCarts = $query->get();
 
             foreach ($abandonedCarts as $cart) {
                 $cart->update([
-                    'status' => 'recovered',
-                    'recovered_at' => now(),
-                    'recovered_order_id' => $orderId
+                    'status'             => 'recovered',
+                    'recovered_at'       => now(),
+                    'recovered_order_id' => $orderId,
                 ]);
             }
-
         } catch (\Exception $e) {
             Log::error('Error al marcar carritos como recuperados', [
-                'error' => $e->getMessage(),
+                'error'      => $e->getMessage(),
                 'cart_token' => $cartToken,
-                'order_id' => $orderId
+                'order_id'   => $orderId,
             ]);
         }
     }

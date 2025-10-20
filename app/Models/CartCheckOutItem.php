@@ -13,6 +13,7 @@ class CartCheckOutItem extends Pivot
     protected $fillable = [
         'cart_id',
         'check_out_item_id',
+        'status',
         'quantity',
     ];
 
