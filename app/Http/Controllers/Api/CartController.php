@@ -115,6 +115,44 @@ class CartController extends Controller
         }
     }
 
+    /**
+     * @OA\Put(
+     *     path="/api/v1/cart/check-out-item/{cartCheckOutItem}",
+     *      tags={"Cart"},
+     *      summary="Update cart item",
+     *      description="Update quantity or metadata of a cart item",
+     *      @OA\Parameter(
+     *          name="cartCheckOutItem",
+     *          in="path",
+     *          description="Cart Check Out item ID",
+     *          required=true,
+     *          @OA\Schema(type="integer")
+     *      ),
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(ref="#/components/schemas/UpdateCartCheckOutItemRequest")
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Check Out Item updated successfully",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Producto agregado al carrito"),
+     *             @OA\Property(property="data", ref="#/components/schemas/CartItem"),
+     *             @OA\Property(property="cart_stats", type="object")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Validation error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Los datos proporcionados no son válidos"),
+     *             @OA\Property(property="errors", type="object")
+     *         )
+     *     )
+     * )
+     */
     public function updateCheckOutItem(UpdateCheckOutItemRequest $request, CartCheckOutItem $cartCheckOutItem): JsonResponse
     {
         try {
