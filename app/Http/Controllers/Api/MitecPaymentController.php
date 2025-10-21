@@ -109,7 +109,6 @@ class MitecPaymentController extends Controller
                 'user_id'                => $userId,
             ]);
 
-            $cart = null;
             if ($cartToken) {
                 $cart = Cart::where('cart_token', $cartToken)->first();
                 if ($cart) {

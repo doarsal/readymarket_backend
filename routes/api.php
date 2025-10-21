@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AmexNewClientController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BillingInformationController;
+use App\Http\Controllers\Api\Cart\MinCartAmountController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CfdiUsageController;
@@ -152,6 +153,7 @@ Route::prefix('v1')->group(function() {
         Route::put('/check-out-item/{cartCheckOutItem}', [CartController::class, 'updateCheckOutItem']);
         Route::delete('/clear', [CartController::class, 'clear']);
         Route::post('/mark-abandoned', [CartController::class, 'markAsAbandoned'])->middleware('throttle:10,1');
+        Route::get('/min-cart-amount', MinCartAmountController::class);
 
         // Endpoints que requieren autenticación OBLIGATORIA
         Route::middleware('auth:sanctum')->group(function() {

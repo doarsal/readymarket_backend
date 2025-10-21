@@ -67,21 +67,26 @@ class AmexNewClientController extends Controller
      *     @OA\Response(
      *         response=201,
      *         description="Creado",
-     *         @OA\JsonContent(type="object", example={success: true})
+     *         @OA\JsonContent(
+     *              @OA\Property(property="success", type="boolean", example=true),
+     *         )
      *     ),
      *     @OA\Response(
      *         response=422,
      *         description="Error de validación",
-     *         @OA\JsonContent(
-     *             type="object",
-     *             @OA\Property(property="message", type="string", example="The given data was invalid."),
-     *             @OA\Property(
-     *                 property="errors",
-     *                 type="object",
-     *                 additionalProperties=@OA\Schema(type="array", @OA\Items(type="string"))
-     *             )
-     *         )
-     *     )
+     *           @OA\JsonContent(
+     *               type="object",
+     *               @OA\Property(property="message", type="string", example="The given data was invalid."),
+     *               @OA\Property(
+     *                   property="errors",
+     *                   type="object",
+     *                   @OA\AdditionalProperties(
+     *                       type="array",
+     *                       @OA\Items(type="string")
+     *                  )
+     *              )
+     *          )
+     *      )
      * )
      */
     public function __invoke(Request $request)
