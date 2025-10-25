@@ -21,6 +21,7 @@ class MicrosoftAccountResource extends JsonResource
             'last_name' => $this->last_name,
             'full_name' => $this->full_name,
             'email' => $this->email,
+            'global_admin_email' => $this->global_admin_email,
             'phone' => $this->phone,
             'organization' => $this->organization,
 
@@ -42,6 +43,7 @@ class MicrosoftAccountResource extends JsonResource
             'is_default' => $this->is_default,
             'is_current' => $this->is_current,
             'is_pending' => $this->is_pending,
+            'account_type' => $this->account_type,
             'status_text' => $this->status_text,
 
             // Metadatos

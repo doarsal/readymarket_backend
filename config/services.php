@@ -62,6 +62,13 @@ return [
         'partner_center_base_url' => env('MICROSOFT_PARTNER_CENTER_BASE_URL'),
         'agreement_template_id' => env('MICROSOFT_AGREEMENT_TEMPLATE_ID'),
 
+        // Partner Information (CSP Partner)
+        'partner_id' => env('MICROSOFT_PARTNER_ID', 'fa233b05-e848-45c4-957f-d3e11acfc49c'),
+        'mspp_id' => env('MICROSOFT_MSPP_ID', '0'),
+        'partner_email' => env('MICROSOFT_PARTNER_EMAIL', 'backofficemex@readymind.ms'),
+        'partner_phone' => env('MICROSOFT_PARTNER_PHONE', '5585261168'),
+        'partner_name' => env('MICROSOFT_PARTNER_NAME', 'ReadyMarket of Readymind Mexico SA de CV'),
+
         // API Timeouts (in seconds)
         'token_timeout' => env('MICROSOFT_API_TOKEN_TIMEOUT', 60),
         'create_cart_timeout' => env('MICROSOFT_API_CREATE_CART_TIMEOUT', 120),

@@ -305,6 +305,7 @@ Route::prefix('v1')->group(function() {
         Route::prefix('microsoft-accounts')->group(function() {
             Route::get('/', [MicrosoftAccountController::class, 'index']);
             Route::post('/', [MicrosoftAccountController::class, 'store']);
+            Route::post('link-existing', [MicrosoftAccountController::class, 'linkExisting']);
             Route::get('{id}', [MicrosoftAccountController::class, 'show']);
             Route::put('{id}', [MicrosoftAccountController::class, 'update']);
             Route::delete('{id}', [MicrosoftAccountController::class, 'destroy']);
@@ -313,6 +314,7 @@ Route::prefix('v1')->group(function() {
             Route::get('progress', [MicrosoftAccountController::class, 'progress']);
             Route::patch('{id}/set-default', [MicrosoftAccountController::class, 'setDefault']);
             Route::get('{id}/verify', [MicrosoftAccountController::class, 'verify']);
+            Route::patch('{id}/verify-link', [MicrosoftAccountController::class, 'verifyLink']);
         });
 
         // Billing Information endpoints
