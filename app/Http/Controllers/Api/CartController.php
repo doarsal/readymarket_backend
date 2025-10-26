@@ -11,6 +11,7 @@ use App\Models\Cart;
 use App\Models\CartCheckOutItem;
 use App\Models\CartItem;
 use App\Services\CartService;
+use Config;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -43,7 +44,7 @@ class CartController extends Controller
         // Obtener la moneda por defecto de la tienda
         $storeCurrency = $currencyService->getStoreCurrency($storeId);
 
-        return $storeCurrency ? $storeCurrency->code : 'MXN'; // Fallback a MXN
+        return $storeCurrency ? $storeCurrency->code : Config::get('app.default_currency'); // Fallback
     }
 
     /**
@@ -268,7 +269,7 @@ class CartController extends Controller
                                     'description'       => $item->product->SkuDescription,
                                     'publisher'         => $item->product->Publisher,
                                     'icon'              => $item->product->prod_icon,
-                                    'currency'          => 'MXN', // Siempre MXN ya que los precios están convertidos
+                                    'currency'          => Config::get('app.default_currency'),
                                     'original_currency' => $item->product->Currency, // USD original para referencia
                                 ] : null,
                             ];

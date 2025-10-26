@@ -26,19 +26,41 @@ class Role extends Model
 {
     use HasFactory;
 
+    public const SUPER_ADMIN     = 'super-admin';
+
+    public const ADMIN           = 'admin';
+
+    public const STORE_MANAGER   = 'store-manager';
+
+    public const PRODUCT_MANAGER = 'product-manager';
+
+    public const ANALYST         = 'analyst';
+
+    public const EDITOR          = 'editor';
+
+    public const VIEWER          = 'viewer';
+
+    public const DASHBOARD_ROLES = [
+        self::SUPER_ADMIN,
+        self::ADMIN,
+        self::STORE_MANAGER,
+        self::PRODUCT_MANAGER,
+        self::ANALYST,
+        self::EDITOR,
+    ];
+
     protected $fillable = [
         'name',
         'slug',
         'description',
         'permissions',
         'is_active',
-        'is_system'
+        'is_system',
     ];
-
-    protected $casts = [
+    protected $casts    = [
         'permissions' => 'array',
-        'is_active' => 'boolean',
-        'is_system' => 'boolean',
+        'is_active'   => 'boolean',
+        'is_system'   => 'boolean',
     ];
 
     /**
@@ -46,9 +68,7 @@ class Role extends Model
      */
     public function users()
     {
-        return $this->belongsToMany(User::class, 'role_user')
-                    ->withPivot('store_id')
-                    ->withTimestamps();
+        return $this->belongsToMany(User::class, 'role_user')->withPivot('store_id')->withTimestamps();
     }
 
     /**
@@ -56,8 +76,7 @@ class Role extends Model
      */
     public function permissions()
     {
-        return $this->belongsToMany(Permission::class, 'permission_role')
-                    ->withTimestamps();
+        return $this->belongsToMany(Permission::class, 'permission_role')->withTimestamps();
     }
 
     /**
@@ -93,7 +112,7 @@ class Role extends Model
 
         // Update the permissions cache
         $this->update([
-            'permissions' => $this->permissions->pluck('slug')->toArray()
+            'permissions' => $this->permissions->pluck('slug')->toArray(),
         ]);
     }
 

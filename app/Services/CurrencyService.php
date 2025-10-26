@@ -3,8 +3,8 @@
 namespace App\Services;
 
 use App\Models\Currency;
-use App\Models\Store;
 use App\Models\ExchangeRate;
+use App\Models\Store;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -15,24 +15,21 @@ class CurrencyService
      */
     public function getStoreCurrency(int $storeId): ?Currency
     {
-        return Cache::remember("store_{$storeId}_currency", 3600, function () use ($storeId) {
+        return Cache::remember("store_{$storeId}_currency", 3600, function() use ($storeId) {
             $store = Store::find($storeId);
             if (!$store) {
                 return null;
             }
 
             // Get store's default currency
-            $currency = $store->currencies()
-                             ->wherePivot('is_default', true)
-                             ->wherePivot('is_active', true)
-                             ->first();
+            $currency = $store->currencies()->wherePivot('is_default', true)->wherePivot('is_active', true)->first();
 
             // Fallback to first active currency if no default
             if (!$currency) {
                 $currency = $store->currencies()
-                                 ->wherePivot('is_active', true)
-                                 ->orderBy('store_currencies.sort_order')
-                                 ->first();
+                    ->wherePivot('is_active', true)
+                    ->orderBy('store_currencies.sort_order')
+                    ->first();
             }
 
             return $currency;
@@ -44,10 +41,8 @@ class CurrencyService
      */
     public function getCurrencyByCode(string $code): ?Currency
     {
-        return Cache::remember("currency_code_{$code}", 3600, function () use ($code) {
-            return Currency::where('code', $code)
-                          ->where('is_active', true)
-                          ->first();
+        return Cache::remember("currency_code_{$code}", 3600, function() use ($code) {
+            return Currency::where('code', $code)->where('is_active', true)->first();
         });
     }
 
@@ -62,16 +57,16 @@ class CurrencyService
     ): float {
         // Handle currency IDs or codes
         $fromCurrencyId = is_int($fromCurrency) ? $fromCurrency : $this->getCurrencyIdByCode($fromCurrency);
-        $toCurrencyId = is_int($toCurrency) ? $toCurrency : $this->getCurrencyIdByCode($toCurrency);
+        $toCurrencyId   = is_int($toCurrency) ? $toCurrency : $this->getCurrencyIdByCode($toCurrency);
 
         if (!$fromCurrencyId || !$toCurrencyId || $fromCurrencyId === $toCurrencyId) {
             return $amount;
         }
 
-        $date = $date ?? now()->format('Y-m-d');
+        $date     = $date ?? now()->format('Y-m-d');
         $cacheKey = "exchange_rate_{$fromCurrencyId}_{$toCurrencyId}_{$date}";
 
-        $rate = Cache::remember($cacheKey, 1800, function () use ($fromCurrencyId, $toCurrencyId, $date) {
+        $rate = Cache::remember($cacheKey, 1800, function() use ($fromCurrencyId, $toCurrencyId, $date) {
             return ExchangeRate::getRate($fromCurrencyId, $toCurrencyId, $date);
         });
 
@@ -83,16 +78,10 @@ class CurrencyService
      */
     public function formatPrice(float $amount, Currency $currency): string
     {
-        $formattedAmount = number_format(
-            $amount,
-            $currency->decimal_places,
-            $currency->decimal_separator,
-            $currency->thousands_separator
-        );
+        $formattedAmount = number_format($amount, $currency->decimal_places, $currency->decimal_separator,
+            $currency->thousands_separator);
 
-        $baseFormatted = $currency->symbol_position === 'before'
-            ? $currency->symbol . $formattedAmount
-            : $formattedAmount . $currency->symbol;
+        $baseFormatted = $currency->symbol_position === 'before' ? $currency->symbol . $formattedAmount : $formattedAmount . $currency->symbol;
 
         // Agregar el código de moneda al final
         return $baseFormatted . ' ' . $currency->code;
@@ -111,11 +100,12 @@ class CurrencyService
 
         if (!$storeCurrency) {
             Log::warning("No currency found for store {$storeId}");
+
             return [
-                'amount' => $amount,
-                'formatted' => number_format($amount, 2),
-                'currency_code' => 'USD',
-                'currency_symbol' => '$'
+                'amount'          => $amount,
+                'formatted'       => number_format($amount, 2),
+                'currency_code'   => 'USD',
+                'currency_symbol' => '$',
             ];
         }
 
@@ -128,16 +118,16 @@ class CurrencyService
         }
 
         $convertedAmount = $this->convertAmount($amount, $fromCurrency, $storeCurrency->id);
-        $formattedPrice = $this->formatPrice($convertedAmount, $storeCurrency);
+        $formattedPrice  = $this->formatPrice($convertedAmount, $storeCurrency);
 
         return [
-            'amount' => round($convertedAmount, $storeCurrency->decimal_places),
-            'formatted' => $formattedPrice,
-            'currency_code' => $storeCurrency->code,
+            'amount'          => round($convertedAmount, $storeCurrency->decimal_places),
+            'formatted'       => $formattedPrice,
+            'currency_code'   => $storeCurrency->code,
             'currency_symbol' => $storeCurrency->symbol,
-            'currency_name' => $storeCurrency->name,
+            'currency_name'   => $storeCurrency->name,
             'original_amount' => $amount,
-            'exchange_rate' => $convertedAmount / $amount
+            'exchange_rate'   => $convertedAmount / $amount,
         ];
     }
 
@@ -148,10 +138,10 @@ class CurrencyService
     {
         // Clean the price string (remove commas, spaces)
         $unitPrice = (float) str_replace([',', ' '], '', $product->UnitPrice ?? '0');
-        $erpPrice = (float) str_replace([',', ' '], '', $product->ERPPrice ?? '0');
+        $erpPrice  = (float) str_replace([',', ' '], '', $product->ERPPrice ?? '0');
 
         // Use ERP price if available, otherwise unit price
-        $basePrice = $erpPrice > 0 ? $erpPrice : $unitPrice;
+        $basePrice = $unitPrice > 0 ? $unitPrice : $erpPrice;
 
         // Get original currency from product
         $originalCurrency = $product->Currency ?? 'USD';
@@ -161,9 +151,9 @@ class CurrencyService
 
         // Add product-specific information
         $priceInfo['original_currency'] = $originalCurrency;
-        $priceInfo['unit_price'] = $unitPrice;
-        $priceInfo['erp_price'] = $erpPrice;
-        $priceInfo['price_source'] = $erpPrice > 0 ? 'erp' : 'unit';
+        $priceInfo['unit_price']        = $unitPrice;
+        $priceInfo['erp_price']         = $erpPrice;
+        $priceInfo['price_source']      = $erpPrice > 0 ? 'erp' : 'unit';
 
         return $priceInfo;
     }
@@ -174,6 +164,7 @@ class CurrencyService
     private function getCurrencyIdByCode(string $code): ?int
     {
         $currency = $this->getCurrencyByCode($code);
+
         return $currency ? $currency->id : null;
     }
 
@@ -182,17 +173,17 @@ class CurrencyService
      */
     public function getStoreCurrencies(int $storeId): \Illuminate\Database\Eloquent\Collection
     {
-        return Cache::remember("store_{$storeId}_currencies", 3600, function () use ($storeId) {
+        return Cache::remember("store_{$storeId}_currencies", 3600, function() use ($storeId) {
             $store = Store::find($storeId);
             if (!$store) {
                 return collect();
             }
 
             return $store->currencies()
-                        ->wherePivot('is_active', true)
-                        ->orderBy('store_currencies.is_default', 'desc')
-                        ->orderBy('store_currencies.sort_order')
-                        ->get();
+                ->wherePivot('is_active', true)
+                ->orderBy('store_currencies.is_default', 'desc')
+                ->orderBy('store_currencies.sort_order')
+                ->get();
         });
     }
 

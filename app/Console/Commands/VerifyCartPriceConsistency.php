@@ -70,7 +70,7 @@ class VerifyCartPriceConsistency extends Command
             // Método 2: Simular CartItem accessor
             $unitPriceUSD = (float) str_replace(',', '', $product->UnitPrice);
             $erpPriceUSD = (float) str_replace(',', '', $product->ERPPrice ?? '0');
-            $basePrice = $erpPriceUSD > 0 ? $erpPriceUSD : $unitPriceUSD;
+            $basePrice = $unitPriceUSD > 0 ? $unitPriceUSD : $erpPriceUSD;
 
             $storeCurrency = $this->currencyService->getStoreCurrency($storeId);
             $convertedPrice = $this->currencyService->convertAmount(

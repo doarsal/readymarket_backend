@@ -3,7 +3,7 @@
 namespace App\Services\Payment;
 
 use App;
-use App\Actions\MinCartExchangeRate;
+use App\Actions\ExchangeRate;
 use App\Models\PaymentSession;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Support\Collection;
@@ -165,7 +165,7 @@ class MitecPaymentService
      */
     protected function validatePaymentData(array $data): array
     {
-        $minCartExchangeRateAction = App::make(MinCartExchangeRate::class);
+        $minCartExchangeRateAction = App::make(ExchangeRate::class);
         $exchangeData              = Collection::make($minCartExchangeRateAction->execute());
         $exchangeMinRate           = $exchangeData->get('exchange');
         $usdMinRate                = $exchangeData->get('usd');

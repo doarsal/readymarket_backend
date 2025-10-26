@@ -1,13 +1,14 @@
 <?php
 
-namespace App\Http\Controllers\Api\Cart;
+namespace App\Http\Controllers\Api\Cart\CheckOut\Settings;
 
 use App;
-use App\Actions\MinCartExchangeRate;
+use App\Actions\ExchangeRate;
 use App\Http\Controllers\Controller;
+use Config;
 use Illuminate\Contracts\Container\BindingResolutionException;
 
-class MinCartAmountController extends Controller
+class CartCheckOutSettingsController extends Controller
 {
     /**
      * @OA\Get(
@@ -27,16 +28,16 @@ class MinCartAmountController extends Controller
      *                 type="object",
      *                 required={"exchange", "usd"},
      *                 @OA\Property(
-     *                     property="exchange",
+     *                     property="exchange_rate",
      *                     type="string",
-     *                     example="1500.00",
-     *                     description="Monto mínimo del carrito en moneda local (formato string con 2 decimales)"
+     *                     example="19.21",
+     *                     description="Precio de cambio"
      *                 ),
      *                 @OA\Property(
-     *                     property="usd",
+     *                     property="min_cart_amount",
      *                     type="string",
      *                     example="50.00",
-     *                     description="Monto equivalente en USD (formato string con 2 decimales)"
+     *                     description="Monto mínimo para el carrito"
      *                 )
      *             )
      *         )
@@ -55,12 +56,16 @@ class MinCartAmountController extends Controller
      */
     public function __invoke()
     {
-        $minCartExchangeRateAction = App::make(MinCartExchangeRate::class);
-        $exchangeData              = $minCartExchangeRateAction->execute();
+        $minCartAmount      = number_format(Config::get('exchange-rate.min_cart_amount'), 2);
+        $exchangeRateAction = App::make(ExchangeRate::class);
+        $exchangeRate       = $exchangeRateAction->execute();
 
         return response()->json([
             'success' => true,
-            'data'    => $exchangeData,
+            'data'    => [
+                'exchange_rate'   => number_format($exchangeRate, 2),
+                'min_cart_amount' => $minCartAmount,
+            ],
         ]);
     }
 }

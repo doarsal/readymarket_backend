@@ -7,6 +7,7 @@ use App\Http\Resources\CategoryResource;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ExchangeRate;
+use Config;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
@@ -23,11 +24,11 @@ class CategoryController extends Controller
         $store = \App\Models\Store::find($storeId);
 
         if (!$store) {
-            return 'MXN'; // Fallback
+            return Config::get('app.default_currency'); // Fallback
         }
 
         $defaultCurrency = $store->getDefaultCurrency();
-        return $defaultCurrency ? $defaultCurrency->code : 'MXN';
+        return $defaultCurrency ? $defaultCurrency->code : Config::get('app.default_currency');
     }
 
     /**

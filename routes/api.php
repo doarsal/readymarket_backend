@@ -5,7 +5,7 @@ use App\Http\Controllers\Api\AmexNewClientController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BillingInformationController;
-use App\Http\Controllers\Api\Cart\MinCartAmountController;
+use App\Http\Controllers\Api\Cart\CheckOut\Settings\CartCheckOutSettingsController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CfdiUsageController;
@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\PaymentCardController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PostalCodeController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\Products\MassiveUpdateController as ProductMassiveUpdateController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\StoreConfigurationController;
@@ -30,6 +31,7 @@ use App\Http\Controllers\Api\TranslationController;
 use App\Http\Controllers\Api\UserActivityLogController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\ContactController;
+use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -53,7 +55,6 @@ Route::middleware('auth:sanctum')->get('/user', function(Request $request) {
 
 // Microsoft Marketplace API Routes
 Route::prefix('v1')->group(function() {
-
     // Rutas de autenticación
     Route::prefix('auth')->middleware('throttle:10,1')->group(function() {
         Route::post('register', [AuthController::class, 'register']);
@@ -150,10 +151,10 @@ Route::prefix('v1')->group(function() {
         Route::post('/items', [CartController::class, 'addItem']);
         Route::put('/items/{item}', [CartController::class, 'updateItem']);
         Route::delete('/items/{item}', [CartController::class, 'removeItem']);
+        Route::get('/check-out/settings', CartCheckOutSettingsController::class);
         Route::put('/check-out-item/{cartCheckOutItem}', [CartController::class, 'updateCheckOutItem']);
         Route::delete('/clear', [CartController::class, 'clear']);
         Route::post('/mark-abandoned', [CartController::class, 'markAsAbandoned'])->middleware('throttle:10,1');
-        Route::get('/min-cart-amount', MinCartAmountController::class);
 
         // Endpoints que requieren autenticación OBLIGATORIA
         Route::middleware('auth:sanctum')->group(function() {
@@ -174,19 +175,44 @@ Route::prefix('v1')->group(function() {
 
     // TODAS las demás rutas requieren autenticación
     Route::middleware('auth:sanctum')->group(function() {
+        /* -- Authorized Endpoints -- */
+        Route::prefix('analytics')->middleware('hasAnyRole:' . implode(',', Role::DASHBOARD_ROLES))->group(function() {
+            Route::get('executive-dashboard', [AnalyticsController::class, 'getExecutiveDashboard']);
+            Route::get('dashboard', [AnalyticsController::class, 'dashboard']);
+            Route::get('stores', [AnalyticsController::class, 'stores']);
+            Route::get('products/top', [AnalyticsController::class, 'topProducts']);
+            Route::get('categories/performance', [AnalyticsController::class, 'categoriesPerformance']);
+            Route::get('pricing', [AnalyticsController::class, 'pricing']);
+            Route::get('system/health', [AnalyticsController::class, 'systemHealth']);
+            Route::get('page-views', [AnalyticsController::class, 'getPageViews']);
+            Route::get('abandoned-carts', [AnalyticsController::class, 'getAbandonedCarts']);
+            Route::get('abandoned-carts-simple', [AnalyticsController::class, 'getAbandonedCartsSimple']);
+            Route::post('mark-abandoned-carts', [AnalyticsController::class, 'markAbandonedCarts']);
+        });
 
-        // Analytics endpoints (TODOS requieren autenticación)
-        Route::get('analytics/dashboard', [AnalyticsController::class, 'dashboard']);
-        Route::get('analytics/executive-dashboard', [AnalyticsController::class, 'getExecutiveDashboard']);
-        Route::get('analytics/stores', [AnalyticsController::class, 'stores']);
-        Route::get('analytics/products/top', [AnalyticsController::class, 'topProducts']);
-        Route::get('analytics/categories/performance', [AnalyticsController::class, 'categoriesPerformance']);
-        Route::get('analytics/pricing', [AnalyticsController::class, 'pricing']);
-        Route::get('analytics/system/health', [AnalyticsController::class, 'systemHealth']);
-        Route::get('analytics/page-views', [AnalyticsController::class, 'getPageViews']);
-        Route::get('analytics/abandoned-carts', [AnalyticsController::class, 'getAbandonedCarts']);
-        Route::get('analytics/abandoned-carts-simple', [AnalyticsController::class, 'getAbandonedCartsSimple']);
-        Route::post('analytics/mark-abandoned-carts', [AnalyticsController::class, 'markAbandonedCarts']);
+        // Categories endpoints (admin only)
+        Route::prefix('categories')->middleware('hasAnyRole:' . Role::SUPER_ADMIN . ',' . Role::ADMIN)->group(function(
+        ) {
+            Route::get('stats', [CategoryController::class, 'getStats']);
+            Route::get('by-store/{storeId}', [CategoryController::class, 'getByStore']);
+            Route::post('/', [CategoryController::class, 'store']);
+            Route::put('{category}', [CategoryController::class, 'update']);
+            Route::delete('{category}', [CategoryController::class, 'destroy']);
+        });
+
+        // Products endpoints (admin only)
+        Route::prefix('products')->middleware('hasAnyRole:' . implode(',',
+                [Role::SUPER_ADMIN, Role::ADMIN, Role::STORE_MANAGER, Role::PRODUCT_MANAGER]))->group(function() {
+            Route::get('stats', [ProductController::class, 'getStats']);
+            Route::post('clear-cache', [ProductController::class, 'clearCache']);
+            Route::get('by-store/{storeId}', [ProductController::class, 'getByStore']);
+            Route::get('by-sku-id/{skuId}', [ProductController::class, 'showBySkuId']);
+            Route::post('/', [ProductController::class, 'store']);
+            Route::put('{id}', [ProductController::class, 'update']);
+            Route::delete('{id}', [ProductController::class, 'destroy']);
+            Route::post('/massive-update', ProductMassiveUpdateController::class);
+        });
+        /* -- End: Authorized Endpoints -- */
 
         // Tracking endpoints (requieren autenticación)
         Route::post('analytics/track-page-view', [AnalyticsController::class, 'trackPageView'])
@@ -266,22 +292,6 @@ Route::prefix('v1')->group(function() {
         Route::apiResource('store-configurations', StoreConfigurationController::class);
         Route::get('store-configurations/by-store/{storeId}', [StoreConfigurationController::class, 'getByStore']);
         Route::post('store-configurations/bulk', [StoreConfigurationController::class, 'bulkStore']);
-
-        // Categories endpoints (admin only)
-        Route::get('categories/stats', [CategoryController::class, 'getStats']);
-        Route::get('categories/by-store/{storeId}', [CategoryController::class, 'getByStore']);
-        Route::post('categories', [CategoryController::class, 'store']);
-        Route::put('categories/{category}', [CategoryController::class, 'update']);
-        Route::delete('categories/{category}', [CategoryController::class, 'destroy']);
-
-        // Products endpoints (admin only)
-        Route::get('products/stats', [ProductController::class, 'getStats']);
-        Route::post('products/clear-cache', [ProductController::class, 'clearCache']);
-        Route::get('products/by-store/{storeId}', [ProductController::class, 'getByStore']);
-        Route::get('products/by-sku-id/{skuId}', [ProductController::class, 'showBySkuId']);
-        Route::post('products', [ProductController::class, 'store']);
-        Route::put('products/{id}', [ProductController::class, 'update']);
-        Route::delete('products/{id}', [ProductController::class, 'destroy']);
 
         // Users endpoints
         Route::apiResource('users', UserController::class);

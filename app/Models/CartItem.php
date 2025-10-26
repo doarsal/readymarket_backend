@@ -117,7 +117,7 @@ class CartItem extends Model
         $erpPrice = $this->product->ERPPrice ? (float) str_replace(',', '', $this->product->ERPPrice) : 0;
         $unitPrice = $this->product->UnitPrice ? (float) str_replace(',', '', $this->product->UnitPrice) : 0;
 
-        $unitPriceUSD = $erpPrice > 0 ? $erpPrice : $unitPrice;
+        $unitPriceUSD = $unitPrice > 0 ? $unitPrice : $erpPrice;
 
         if ($unitPriceUSD <= 0) {
             return 0.0;

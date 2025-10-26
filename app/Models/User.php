@@ -176,6 +176,30 @@ class User extends Authenticatable
         return $this->roles->contains('slug', $roleSlug);
     }
 
+    public function hasAnyRole(array $roles): bool
+    {
+        return $this->roles()->whereIn('slug', $roles)->exists();
+    }
+
+    public function hasRoles(array $roles): bool
+    {
+        $count = $this->roles()->whereIn('slug', $roles)->count();
+
+        return $count === count($roles);
+    }
+
+    public function hasAnyPermission(array $permissions): bool
+    {
+        return $this->permissions()->whereIn('slug', $permissions)->exists();
+    }
+
+    public function hasPermissions(array $permissions): bool
+    {
+        $count = $this->permissions()->whereIn('slug', $permissions)->count();
+
+        return $count === count($permissions);
+    }
+
     /**
      * Get user roles for a specific store.
      */

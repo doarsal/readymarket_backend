@@ -7,6 +7,7 @@ use App\Models\CartCheckOutItem;
 use App\Models\CartItem;
 use App\Models\CheckOutItem;
 use App\Models\Product;
+use Config;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -296,7 +297,7 @@ class CartService
         $currencyService = app(\App\Services\CurrencyService::class);
         $storeCurrency   = $currencyService->getStoreCurrency($storeId);
 
-        return $storeCurrency ? $storeCurrency->code : 'MXN';
+        return $storeCurrency ? $storeCurrency->code : Config::get('app.default_currency');
     }
 
     /**
