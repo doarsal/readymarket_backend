@@ -588,14 +588,44 @@ class MicrosoftAccountController extends Controller
         if (!$account) {
             return response()->json([
                 'success' => false,
-                'message' => 'Microsoft account not found or access denied'
+                'message' => 'Cuenta Microsoft no encontrada o acceso denegado'
             ], 404);
         }
 
-        try {
-            $this->logActivity('delete', $account, 'Cuenta Microsoft eliminada');
+        // VALIDACIÓN: No permitir eliminar cuenta predeterminada
+        if ($account->is_default) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No puedes eliminar la cuenta predeterminada. Establece otra cuenta como predeterminada primero.'
+            ], 422);
+        }
 
-            $account->delete();
+        try {
+            // VALIDACIÓN: Verificar si tiene órdenes/compras asociadas
+            $hasOrders = DB::table('orders')
+                ->where('microsoft_account_id', $account->id)
+                ->exists();
+
+            if ($hasOrders) {
+                // Tiene historial de compras - NO SE PUEDE ELIMINAR
+                Log::warning('Microsoft Account: Delete attempt blocked - has orders', [
+                    'account_id' => $id,
+                    'user_id' => $userId,
+                    'domain' => $account->domain_concatenated
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No puedes eliminar esta cuenta porque tiene compras asociadas. Por seguridad y trazabilidad, las cuentas con historial de compras no pueden eliminarse.',
+                    'reason' => 'has_orders'
+                ], 422);
+            }
+
+            // Si llegamos aquí: NO tiene compras - HARD DELETE seguro
+            $this->logActivity('delete', $account, 'Cuenta Microsoft eliminada (sin historial de compras)');
+
+            // Eliminar permanentemente (hard delete)
+            $account->forceDelete();
 
             return response()->json([
                 'success' => true,
@@ -610,7 +640,7 @@ class MicrosoftAccountController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al eliminar la cuenta: ' . $e->getMessage()
+                'message' => 'Error al eliminar la cuenta. Por favor, intenta nuevamente.'
             ], 500);
         }
     }
@@ -1220,15 +1250,15 @@ class MicrosoftAccountController extends Controller
 
             $userId = auth()->id();
             $validated = $request->validated();
-            
+
             // Crear una cuenta con datos mínimos en estado pending
             $account = new MicrosoftAccount();
             $cleanDomain = $account->formatDomain($validated['domain']);
             $domainConcatenated = $account->generateDomainConcatenated($validated['domain']);
-            
+
             // Generar ID temporal para Microsoft
             $temporaryMicrosoftId = 'pending-link-' . uniqid() . '-' . time();
-            
+
             $accountData = [
                 'user_id' => $userId,
                 'microsoft_id' => $temporaryMicrosoftId,
@@ -1306,9 +1336,43 @@ class MicrosoftAccountController extends Controller
                 ]
             ], 201);
 
+        } catch (\Illuminate\Database\QueryException $e) {
+            DB::rollBack();
+
+            // Error de clave duplicada (constraint violation)
+            if ($e->getCode() === '23000' || strpos($e->getMessage(), 'Duplicate entry') !== false || strpos($e->getMessage(), 'Integrity constraint violation') !== false) {
+                $domain = $validated['domain'] ?? 'desconocido';
+                $cleanDomain = (new MicrosoftAccount())->formatDomain($domain);
+                $domainConcatenated = (new MicrosoftAccount())->generateDomainConcatenated($cleanDomain);
+
+                Log::warning('Microsoft Account: Duplicate domain attempted', [
+                    'user_id' => auth()->id(),
+                    'domain' => $domain,
+                    'domain_concatenated' => $domainConcatenated
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El dominio "' . $domainConcatenated . '" ya está registrado en tu cuenta. Por favor, verifica tus cuentas Microsoft existentes o usa un dominio diferente.'
+                ], 422);
+            }
+
+            // Otros errores de base de datos
+            Log::error('Microsoft Account: Database error on link existing', [
+                'error' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'user_id' => auth()->id(),
+                'domain' => $validated['domain'] ?? null
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Ocurrió un error al procesar tu solicitud. Por favor, intenta nuevamente o contacta a soporte si el problema persiste.'
+            ], 500);
+
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             Log::error('Microsoft Account: Link existing failed', [
                 'error' => $e->getMessage(),
                 'user_id' => auth()->id(),
@@ -1317,7 +1381,7 @@ class MicrosoftAccountController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al vincular la cuenta: ' . $e->getMessage()
+                'message' => 'Error al vincular la cuenta. Por favor, intenta nuevamente.'
             ], 500);
         }
     }
@@ -1371,13 +1435,54 @@ class MicrosoftAccountController extends Controller
                 ]);
             }
 
-            // TODO: Aquí se podría implementar verificación real con Microsoft Partner Center API
-            // para comprobar si se aceptó la invitación
-            // Por ahora, lo activamos manualmente cuando el usuario lo solicite
+            // Verificar si está en modo fake (para pruebas)
+            $fakeMode = env('MICROSOFT_FAKE_MODE', false);
 
+            if ($fakeMode) {
+                // Modo fake - activar directamente sin verificar con Microsoft
+                $fakeMicrosoftId = $account->microsoft_id ?: 'fake-linked-' . uniqid() . '-' . time();
+
+                $account->update([
+                    'microsoft_id' => $fakeMicrosoftId,
+                    'is_pending' => false,
+                    'is_active' => true,
+                ]);
+
+                // Actualizar progreso del usuario
+                $this->updateUserProgress($userId);
+
+                $this->logActivity('verify_link', $account, 'Cuenta vinculada verificada y activada (MODO FAKE)');
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Cuenta verificada y activada correctamente (MODO FAKE). ¡Ya puedes comenzar a comprar licencias!',
+                    'data' => new MicrosoftAccountResource($account->fresh())
+                ]);
+            }
+
+            // Verificar con Microsoft Partner Center si la invitación fue aceptada
+            $partnerService = app(MicrosoftPartnerCenterService::class);
+            $verificationResult = $partnerService->checkPartnerRelationshipAccepted($account->domain_concatenated);
+
+            if (!$verificationResult['accepted']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $verificationResult['message'],
+                    'can_retry' => $verificationResult['can_retry'] ?? true,
+                    'details' => $verificationResult['details'] ?? null
+                ], 422);
+            }
+
+            // Actualizar cuenta con Microsoft ID si es necesario
+            if (isset($verificationResult['microsoft_id']) && empty($account->microsoft_id)) {
+                $account->microsoft_id = $verificationResult['microsoft_id'];
+            }
+
+            // Activar cuenta
             $account->update([
                 'is_pending' => false,
                 'is_active' => true,
+                'microsoft_id' => $account->microsoft_id
             ]);
 
             // Actualizar progreso del usuario
@@ -1387,7 +1492,7 @@ class MicrosoftAccountController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Cuenta verificada y activada correctamente',
+                'message' => 'Cuenta verificada y activada correctamente. ¡Ya puedes comenzar a comprar licencias!',
                 'data' => new MicrosoftAccountResource($account->fresh())
             ]);
 
@@ -1399,7 +1504,280 @@ class MicrosoftAccountController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al verificar la cuenta: ' . $e->getMessage()
+                'message' => 'Error al verificar la cuenta. Inténtalo nuevamente en unos minutos.',
+                'can_retry' => true
+            ], 500);
+        }
+    }
+
+    /**
+     * Verificar todas las cuentas pendientes del usuario autenticado
+     * Este endpoint es llamado por el polling del frontend cada 2 minutos
+     */
+    public function verifyPendingAccounts(Request $request): JsonResponse
+    {
+        try {
+            $userId = auth()->id();
+
+            // Obtener todas las cuentas pendientes del usuario
+            $pendingAccounts = MicrosoftAccount::forUser($userId)
+                ->where('is_pending', true)
+                ->where('is_active', false)
+                ->get();
+
+            if ($pendingAccounts->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No hay cuentas pendientes',
+                    'data' => [
+                        'verified' => 0,
+                        'pending' => 0
+                    ]
+                ]);
+            }
+
+            $verified = [];
+            $stillPending = [];
+
+            // Verificar si está en modo fake (para pruebas)
+            $fakeMode = env('MICROSOFT_FAKE_MODE', false);
+
+            foreach ($pendingAccounts as $account) {
+                try {
+                    // Verificar según el tipo de cuenta
+                    if ($account->account_type === 'linked') {
+                        // En modo fake, activar directamente
+                        if ($fakeMode) {
+                            $fakeMicrosoftId = $account->microsoft_id ?: 'fake-linked-' . uniqid() . '-' . time();
+
+                            $account->update([
+                                'microsoft_id' => $fakeMicrosoftId,
+                                'is_pending' => false,
+                                'is_active' => true,
+                            ]);
+
+                            $this->updateUserProgress($userId);
+                            $this->logActivity('auto_verify', $account, 'Cuenta vinculada verificada automáticamente (MODO FAKE)');
+
+                            $verified[] = [
+                                'id' => $account->id,
+                                'organization' => $account->organization,
+                                'domain' => $account->domain_concatenated,
+                                'type' => 'linked',
+                                'fake_mode' => true
+                            ];
+                        } else {
+                            // Verificar cuenta vinculada existente
+                            $verificationResult = $this->partnerCenterService->checkPartnerRelationshipAccepted(
+                                $account->domain_concatenated
+                            );
+
+                            if ($verificationResult['accepted']) {
+                                // Actualizar Microsoft ID si viene en la respuesta
+                                if (isset($verificationResult['microsoft_id']) && empty($account->microsoft_id)) {
+                                    $account->microsoft_id = $verificationResult['microsoft_id'];
+                                }
+
+                                // Activar cuenta
+                                $account->update([
+                                    'is_pending' => false,
+                                    'is_active' => true,
+                                    'microsoft_id' => $account->microsoft_id
+                                ]);
+
+                                $this->updateUserProgress($userId);
+                                $this->logActivity('auto_verify', $account, 'Cuenta vinculada verificada automáticamente');
+
+                                $verified[] = [
+                                    'id' => $account->id,
+                                    'organization' => $account->organization,
+                                    'domain' => $account->domain_concatenated,
+                                    'type' => 'linked'
+                                ];
+                            } else {
+                                $stillPending[] = $account->id;
+                            }
+                        }
+
+                    } else if ($account->account_type === 'created') {
+                        // Intentar crear cuenta nueva en Partner Center
+                        $customerData = [
+                            'domain_concatenated' => $account->domain_concatenated,
+                            'culture' => $account->culture,
+                            'email' => $account->email,
+                            'language_code' => $account->language_code,
+                            'organization' => $account->organization,
+                            'first_name' => $account->first_name,
+                            'last_name' => $account->last_name,
+                            'address' => $account->address,
+                            'city' => $account->city,
+                            'state_code' => $account->state_code,
+                            'postal_code' => $account->postal_code,
+                            'country_code' => $account->country_code,
+                            'phone' => $account->phone,
+                        ];
+
+                        $customerResult = $this->partnerCenterService->createCustomer($customerData);
+
+                        // Activar cuenta
+                        $account->update([
+                            'microsoft_id' => $customerResult['microsoft_id'],
+                            'is_pending' => false,
+                            'is_active' => true,
+                        ]);
+
+                        // Aceptar acuerdo
+                        $this->partnerCenterService->acceptCustomerAgreement(
+                            $customerResult['microsoft_id'],
+                            $customerData
+                        );
+
+                        // Enviar email con credenciales
+                        if (!empty($customerResult['password'])) {
+                            $this->emailService->sendCredentials($customerData, $customerResult['password']);
+                        }
+
+                        $this->updateUserProgress($userId);
+                        $this->logActivity('auto_create', $account, 'Cuenta creada automáticamente');
+
+                        $verified[] = [
+                            'id' => $account->id,
+                            'organization' => $account->organization,
+                            'domain' => $account->domain_concatenated,
+                            'type' => 'created'
+                        ];
+                    }
+
+                } catch (\Exception $e) {
+                    // Si falla la verificación de esta cuenta, seguir con las demás
+                    Log::warning('Microsoft Account: Auto-verification failed for account', [
+                        'account_id' => $account->id,
+                        'error' => $e->getMessage()
+                    ]);
+                    $stillPending[] = $account->id;
+                }
+            }
+
+            if (count($verified) > 0) {
+                // Obtener lista actualizada de cuentas pendientes
+                $remainingPending = MicrosoftAccount::forUser($userId)
+                    ->where('is_pending', true)
+                    ->where('is_active', false)
+                    ->select('id', 'organization', 'domain_concatenated', 'is_pending', 'account_type', 'global_admin_email')
+                    ->get();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => count($verified) === 1
+                        ? '¡1 cuenta de Microsoft ha sido activada en el sistema!'
+                        : '¡' . count($verified) . ' cuentas de Microsoft han sido activadas en el sistema!',
+                    'data' => [
+                        'verified' => $verified,
+                        'verified_count' => count($verified),
+                        'pending_count' => count($stillPending),
+                        'pending_accounts' => $remainingPending // Lista actualizada de pendientes
+                    ]
+                ]);
+            }
+
+            // Obtener lista de cuentas pendientes
+            $pendingAccountsList = MicrosoftAccount::forUser($userId)
+                ->where('is_pending', true)
+                ->where('is_active', false)
+                ->select('id', 'organization', 'domain_concatenated', 'is_pending', 'account_type', 'global_admin_email')
+                ->get();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Las invitaciones aún están pendientes de aceptación en Microsoft',
+                'data' => [
+                    'verified' => 0,
+                    'pending' => count($stillPending),
+                    'pending_accounts' => $pendingAccountsList // Lista de pendientes
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Microsoft Account: Verify pending accounts failed', [
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al verificar cuentas pendientes',
+                'data' => [
+                    'verified' => 0,
+                    'pending' => 0
+                ]
+            ], 500);
+        }
+    }
+
+    /**
+     * Activar cuenta manualmente sin verificar con Microsoft API
+     * Usado cuando el usuario ya verificó manualmente que la relación está activa
+     * En modo fake (MICROSOFT_FAKE_MODE=true), permite activar directamente
+     * En modo real, solo permite activar si el usuario lo confirma manualmente
+     */
+    public function forceActivate($id): JsonResponse
+    {
+        try {
+            $userId = auth()->id();
+            $account = MicrosoftAccount::forUser($userId)->find((int)$id);
+
+            if (!$account) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cuenta no encontrada'
+                ], 404);
+            }
+
+            if (!$account->is_pending) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'La cuenta ya está activa',
+                    'data' => new MicrosoftAccountResource($account)
+                ]);
+            }
+
+            // Activar sin verificar Microsoft API (manual o modo fake)
+            $account->update([
+                'is_pending' => false,
+                'is_active' => true,
+            ]);
+
+            // Actualizar progreso del usuario
+            $this->updateUserProgress($userId);
+
+            $logMessage = config('services.microsoft.fake_mode', false)
+                ? 'Cuenta activada manualmente por el usuario (modo fake)'
+                : 'Cuenta activada manualmente por el usuario';
+
+            $this->logActivity('force_activate', $account, $logMessage);
+
+            Log::info('Microsoft Account: Force activated by user', [
+                'account_id' => $account->id,
+                'user_id' => $userId,
+                'domain' => $account->domain_concatenated,
+                'fake_mode' => config('services.microsoft.fake_mode', false)
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => '¡Cuenta activada en el sistema! Ya puedes comenzar a comprar licencias de Microsoft.',
+                'data' => new MicrosoftAccountResource($account->fresh())
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Microsoft Account: Force activate failed', [
+                'account_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al activar la cuenta'
             ], 500);
         }
     }

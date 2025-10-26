@@ -265,4 +265,182 @@ class MicrosoftPartnerCenterService
             'last_sync' => now()->toISOString()
         ];
     }
+
+    /**
+     * Verificar si la relación CSP Partner fue aceptada por el cliente
+     *
+     * Para cuentas vinculadas existentes, verifica si el cliente ya aceptó
+     * la invitación de partner en su portal de Microsoft Admin Center
+     *
+     * @param string $domain Dominio concatenado de Microsoft (ej: empresa.onmicrosoft.com)
+     * @return array ['accepted' => bool, 'message' => string, 'details' => array]
+     */
+    public function checkPartnerRelationshipAccepted(string $domain): array
+    {
+        $logChannel = Log::build([
+            'driver' => 'single',
+            'path' => storage_path('logs/partner_center_' . date('Y-m-d') . '.log'),
+        ]);
+
+        try {
+            $token = $this->getAuthToken();
+
+            $logChannel->info('=== VERIFICANDO RELACIÓN DE PARTNER ===', [
+                'domain' => $domain,
+                'timestamp' => now()->toDateTimeString()
+            ]);
+
+            // Buscar el cliente por dominio primero
+            $searchUrl = $this->getPartnerCenterBaseUrl() . '/customers';
+
+            $logChannel->info('Consultando lista de clientes', [
+                'url' => $searchUrl
+            ]);
+
+            $response = Http::timeout(config('services.microsoft.get_customer_timeout', 60))
+                           ->withHeaders([
+                               'Authorization' => 'Bearer ' . $token,
+                               'Accept' => 'application/json'
+                           ])
+                           ->get($searchUrl);
+
+            if (!$response->successful()) {
+                $logChannel->error('Error al listar clientes', [
+                    'status' => $response->status(),
+                    'response' => $response->body()
+                ]);
+                return [
+                    'accepted' => false,
+                    'message' => 'No se pudo verificar el estado de la invitación.',
+                    'can_retry' => true,
+                    'details' => ['error' => 'API_ERROR']
+                ];
+            }
+
+            $customers = $response->json();
+
+            $logChannel->info('Respuesta de API recibida', [
+                'total_items' => isset($customers['items']) ? count($customers['items']) : 0,
+                'has_items' => isset($customers['items'])
+            ]);
+
+            // Log todos los dominios encontrados
+            if (isset($customers['items'])) {
+                $domains = array_map(function($item) {
+                    return $item['companyProfile']['domain'] ?? 'N/A';
+                }, $customers['items']);
+
+                $logChannel->info('Dominios encontrados en Partner Center', [
+                    'dominios' => $domains,
+                    'buscando' => $domain
+                ]);
+            }
+
+            // Buscar cliente por dominio
+            $customer = null;
+            if (isset($customers['items'])) {
+                foreach ($customers['items'] as $item) {
+                    if (isset($item['companyProfile']['domain']) &&
+                        strtolower($item['companyProfile']['domain']) === strtolower($domain)) {
+                        $customer = $item;
+                        break;
+                    }
+                }
+            }
+
+            if (!$customer) {
+                $logChannel->warning('Cliente NO encontrado', [
+                    'domain_buscado' => $domain,
+                    'total_clientes_revisados' => isset($customers['items']) ? count($customers['items']) : 0
+                ]);
+                return [
+                    'accepted' => false,
+                    'message' => 'La invitación aún no ha sido aceptada. Por favor, inicia sesión en tu cuenta de Microsoft y acepta la invitación del partner.',
+                    'can_retry' => true,
+                    'details' => ['reason' => 'NOT_FOUND']
+                ];
+            }
+
+            $logChannel->info('Cliente ENCONTRADO', [
+                'customer_id' => $customer['id'] ?? 'N/A',
+                'company_name' => $customer['companyProfile']['companyName'] ?? 'N/A',
+                'domain' => $customer['companyProfile']['domain'] ?? 'N/A'
+            ]);
+
+            $logChannel->info('Cliente ENCONTRADO', [
+                'customer_id' => $customer['id'] ?? 'N/A',
+                'company_name' => $customer['companyProfile']['companyName'] ?? 'N/A',
+                'domain' => $customer['companyProfile']['domain'] ?? 'N/A'
+            ]);
+
+            // Cliente encontrado - verificar estado de relación
+            $microsoftId = $customer['id'];
+
+            // Verificar acuerdos del cliente
+            $agreementsUrl = $this->getPartnerCenterBaseUrl() . "/customers/{$microsoftId}/agreements";
+
+            $logChannel->info('Verificando acuerdos del cliente', [
+                'url' => $agreementsUrl
+            ]);
+
+            $agreementResponse = Http::timeout(60)
+                                    ->withHeaders([
+                                        'Authorization' => 'Bearer ' . $token,
+                                        'Accept' => 'application/json'
+                                    ])
+                                    ->get($agreementsUrl);
+
+            $hasAgreement = false;
+            if ($agreementResponse->successful()) {
+                $agreements = $agreementResponse->json();
+                if (isset($agreements['items']) && !empty($agreements['items'])) {
+                    $hasAgreement = true;
+                }
+
+                $logChannel->info('Respuesta de acuerdos', [
+                    'successful' => true,
+                    'has_items' => isset($agreements['items']),
+                    'items_count' => isset($agreements['items']) ? count($agreements['items']) : 0,
+                    'has_agreement' => $hasAgreement
+                ]);
+            } else {
+                $logChannel->warning('Error al obtener acuerdos', [
+                    'status' => $agreementResponse->status(),
+                    'response' => $agreementResponse->body()
+                ]);
+            }
+
+            $logChannel->info('=== RELACIÓN VERIFICADA EXITOSAMENTE ===', [
+                'domain' => $domain,
+                'microsoft_id' => $microsoftId,
+                'has_agreement' => $hasAgreement
+            ]);
+
+            return [
+                'accepted' => true,
+                'message' => 'La invitación fue aceptada exitosamente.',
+                'microsoft_id' => $microsoftId,
+                'has_agreement' => $hasAgreement,
+                'details' => [
+                    'customer_id' => $customer['id'] ?? null,
+                    'company_name' => $customer['companyProfile']['companyName'] ?? null,
+                    'domain' => $customer['companyProfile']['domain'] ?? null,
+                ]
+            ];
+
+        } catch (Exception $e) {
+            $logChannel->error('=== ERROR EN VERIFICACIÓN ===', [
+                'domain' => $domain,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [
+                'accepted' => false,
+                'message' => 'Error al verificar el estado de la invitación. Inténtalo nuevamente en unos minutos.',
+                'can_retry' => true,
+                'details' => ['error' => $e->getMessage()]
+            ];
+        }
+    }
 }

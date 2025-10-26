@@ -37,8 +37,20 @@ class LinkExistingMicrosoftAccountRequest extends FormRequest
                     $account = new MicrosoftAccount();
                     $cleanDomain = $account->formatDomain($value);
 
+                    // Validar que el dominio base no esté duplicado (excluyendo soft deletes)
                     if (!$account->isDomainAvailable($cleanDomain, $userId)) {
                         $fail('El dominio ya está registrado para este usuario.');
+                    }
+
+                    // Validar que el dominio concatenado no esté duplicado (excluyendo soft deletes)
+                    $domainConcatenated = $account->generateDomainConcatenated($cleanDomain);
+                    $existingAccount = MicrosoftAccount::where('domain_concatenated', $domainConcatenated)
+                        ->where('user_id', $userId)
+                        ->whereNull('deleted_at') // Solo cuentas NO eliminadas
+                        ->first();
+
+                    if ($existingAccount) {
+                        $fail('El dominio ' . $domainConcatenated . ' ya está registrado para este usuario.');
                     }
                 }
             ],

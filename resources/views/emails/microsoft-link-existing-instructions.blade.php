@@ -202,7 +202,7 @@
                     <h3 style="display: inline;">Verificar perfil de facturación</h3>
                 </div>
                 <p>Inicia sesión con tu cuenta de <strong>Global Admin</strong> y asegúrate de que tu perfil de cliente esté completo en el portal de Microsoft.</p>
-                
+
                 <a href="{{ $urls['billing_profile'] }}" class="button" target="_blank">
                     🔗 Abrir Perfil de Facturación
                 </a>
@@ -219,7 +219,7 @@
                     <h3 style="display: inline;">Aceptar invitación del Partner</h3>
                 </div>
                 <p>Una vez completado tu perfil, haz clic en el siguiente enlace para aceptar la invitación y autorizar a <strong>{{ $partner['partner_name'] }}</strong> como tu proveedor de soluciones en la nube de Microsoft.</p>
-                
+
                 <a href="{{ $urls['partner_invitation'] }}" class="button" target="_blank">
                     ✅ Aceptar Invitación de Partner
                 </a>

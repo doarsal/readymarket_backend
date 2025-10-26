@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::table('microsoft_accounts', function (Blueprint $table) {
             // Campo para almacenar el email del Global Admin cuando se vincula una cuenta existente
             $table->string('global_admin_email', 255)->nullable()->after('email');
-            
+
             // Campo para identificar el tipo de cuenta (created: nueva, linked: existente vinculada)
             $table->enum('account_type', ['created', 'linked'])->default('created')->after('is_pending');
         });
