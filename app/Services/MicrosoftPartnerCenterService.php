@@ -267,6 +267,100 @@ class MicrosoftPartnerCenterService
     }
 
     /**
+     * Buscar cliente en Partner Center por dominio y obtener sus datos completos
+     *
+     * @param string $domain Dominio concatenado (ej: empresa.onmicrosoft.com)
+     * @return array|null ['customer_id' => string, 'customer_data' => array] o null si no existe
+     */
+    public function findCustomerByDomain(string $domain): ?array
+    {
+        try {
+            $token = $this->getAuthToken();
+
+            Log::info('Buscando cliente por dominio en Partner Center', [
+                'domain' => $domain
+            ]);
+
+            // Buscar el cliente por dominio
+            $searchUrl = $this->getPartnerCenterBaseUrl() . '/customers';
+
+            $response = Http::timeout(config('services.microsoft.get_customer_timeout', 60))
+                           ->withHeaders([
+                               'Authorization' => 'Bearer ' . $token,
+                               'Accept' => 'application/json'
+                           ])
+                           ->get($searchUrl);
+
+            if (!$response->successful()) {
+                Log::error('Error al buscar cliente en Partner Center', [
+                    'domain' => $domain,
+                    'status' => $response->status(),
+                    'response' => $response->body()
+                ]);
+                return null;
+            }
+
+            $customers = $response->json();
+
+            // Buscar cliente por dominio
+            $customer = null;
+            if (isset($customers['items'])) {
+                foreach ($customers['items'] as $item) {
+                    if (isset($item['companyProfile']['domain']) &&
+                        strtolower($item['companyProfile']['domain']) === strtolower($domain)) {
+                        $customer = $item;
+                        break;
+                    }
+                }
+            }
+
+            if (!$customer) {
+                Log::warning('Cliente no encontrado en Partner Center', [
+                    'domain' => $domain,
+                    'total_customers_checked' => isset($customers['items']) ? count($customers['items']) : 0
+                ]);
+                return null;
+            }
+
+            $customerId = $customer['id'];
+
+            Log::info('Cliente encontrado en Partner Center', [
+                'domain' => $domain,
+                'customer_id' => $customerId,
+                'company_name' => $customer['companyProfile']['companyName'] ?? 'N/A'
+            ]);
+
+            // Obtener detalles completos del cliente incluyendo billingProfile
+            $customerDetails = $this->getCustomer($customerId);
+
+            if ($customerDetails) {
+                Log::info('Detalles del cliente obtenidos', [
+                    'customer_id' => $customerId,
+                    'has_billing_profile' => isset($customerDetails['billingProfile'])
+                ]);
+
+                return [
+                    'customer_id' => $customerId,
+                    'customer_data' => $customerDetails
+                ];
+            }
+
+            // Si falla getCustomer, devolver datos básicos
+            return [
+                'customer_id' => $customerId,
+                'customer_data' => $customer
+            ];
+
+        } catch (Exception $e) {
+            Log::error('Error al buscar cliente por dominio', [
+                'domain' => $domain,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
      * Verificar si la relación CSP Partner fue aceptada por el cliente
      *
      * Para cuentas vinculadas existentes, verifica si el cliente ya aceptó
