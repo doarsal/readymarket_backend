@@ -89,7 +89,7 @@ class GeoLocationService
 
             $context = stream_context_create([
                 'http' => [
-                    'timeout' => 3,
+                    'timeout' => 1, // 🔥 Reducido de 3 a 1 segundo para no bloquear
                     'user_agent' => 'Mozilla/5.0 (compatible; LaravelApp/1.0)',
                     'ignore_errors' => true
                 ]

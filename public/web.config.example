@@ -11,7 +11,7 @@
                     </conditions>
                     <action type="CustomResponse" statusCode="200" statusReason="OK" statusDescription="Preflight OK" />
                     <serverVariables>
-                        <set name="RESPONSE_Access-Control-Allow-Origin" value="https://readymarket.readymind.mx" />
+                        <set name="RESPONSE_Access-Control-Allow-Origin" value="https://myreadymarket.com" />
                         <set name="RESPONSE_Access-Control-Allow-Methods" value="GET, POST, PUT, DELETE, OPTIONS, PATCH" />
                         <set name="RESPONSE_Access-Control-Allow-Headers" value="X-Cart-Token, Content-Type, Accept, Authorization, X-Requested-With, X-XSRF-TOKEN" />
                         <set name="RESPONSE_Access-Control-Allow-Credentials" value="true" />

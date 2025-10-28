@@ -383,12 +383,12 @@ class MitecPaymentController extends Controller
         return response()->json([
             'success' => true,
             'config'  => [
-                'currency'         => env('MITEC_DEFAULT_CURRENCY', 'MXN'),
+                'currency'         => config('mitec.default_currency', 'MXN'),
                 'supported_cards'  => ['amex'], // Solo AMEX
-                'min_amount'       => (float) env('MITEC_MIN_AMOUNT', 0.01),
-                'max_amount'       => (float) env('MITEC_MAX_AMOUNT', 999999.99),
-                'billing_required' => env('MITEC_BILLING_REQUIRED', false),
-                'environment'      => env('MITEC_ENVIRONMENT', 'sandbox'),
+                'min_amount'       => (float) config('mitec.min_amount', 0.01),
+                'max_amount'       => (float) config('mitec.max_amount', 999999.99),
+                'billing_required' => config('mitec.billing_required', false),
+                'environment'      => config('mitec.environment', 'sandbox'),
             ],
         ]);
     }

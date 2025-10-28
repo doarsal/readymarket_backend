@@ -55,6 +55,7 @@ class MicrosoftAccount extends Model
         'first_name',
         'last_name',
         'email',
+        'global_admin_email',
         'phone',
         'organization',
         'address',
@@ -70,6 +71,7 @@ class MicrosoftAccount extends Model
         'is_default',
         'is_current',
         'is_pending',
+        'account_type',
         'configuration_id',
         'store_id',
     ];

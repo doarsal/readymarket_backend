@@ -21,6 +21,7 @@ class MicrosoftAccountResource extends JsonResource
             'last_name' => $this->last_name,
             'full_name' => $this->full_name,
             'email' => $this->email,
+            'global_admin_email' => $this->global_admin_email,
             'phone' => $this->phone,
             'organization' => $this->organization,
 
@@ -42,7 +43,13 @@ class MicrosoftAccountResource extends JsonResource
             'is_default' => $this->is_default,
             'is_current' => $this->is_current,
             'is_pending' => $this->is_pending,
+            'account_type' => $this->account_type,
             'status_text' => $this->status_text,
+
+            // Información de relaciones (para validar eliminación)
+            'has_orders' => $this->getOrdersCount() > 0,
+            'can_be_deleted' => !$this->is_default && $this->getOrdersCount() == 0,
+            'orders_count' => $this->getOrdersCount(),
 
             // Metadatos
             'configuration_id' => $this->configuration_id,
@@ -62,5 +69,19 @@ class MicrosoftAccountResource extends JsonResource
                 ];
             }),
         ];
+    }
+
+    /**
+     * Get orders count for this account
+     */
+    private function getOrdersCount(): int
+    {
+        try {
+            return \DB::table('orders')
+                ->where('microsoft_account_id', $this->id)
+                ->count();
+        } catch (\Exception $e) {
+            return 0;
+        }
     }
 }
