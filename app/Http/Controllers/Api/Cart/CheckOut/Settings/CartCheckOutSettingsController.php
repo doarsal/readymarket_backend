@@ -7,6 +7,8 @@ use App\Actions\ExchangeRate;
 use App\Http\Controllers\Controller;
 use Config;
 use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class CartCheckOutSettingsController extends Controller
 {
@@ -54,8 +56,11 @@ class CartCheckOutSettingsController extends Controller
      * )
      * @throws BindingResolutionException
      */
-    public function __invoke()
+    public function __invoke(Request $request)
     {
+        $user                   = Auth::user();
+        $firstBuyDiscountActive = Config::get('products.first_buy.active');
+
         $minCartAmount      = number_format(Config::get('exchange-rate.min_cart_amount'), 2);
         $exchangeRateAction = App::make(ExchangeRate::class);
         $exchangeRate       = $exchangeRateAction->execute();
@@ -63,8 +68,12 @@ class CartCheckOutSettingsController extends Controller
         return response()->json([
             'success' => true,
             'data'    => [
-                'exchange_rate'   => number_format($exchangeRate, 2),
-                'min_cart_amount' => $minCartAmount,
+                'exchange_rate'      => number_format($exchangeRate, 2),
+                'min_cart_amount'    => $minCartAmount,
+                'first_buy_discount' => [
+                    'active'   => $firstBuyDiscountActive && !$user->orders()->paid()->exists(),
+                    'discount' => Config::get('products.first_buy.discount'),
+                ],
             ],
         ]);
     }

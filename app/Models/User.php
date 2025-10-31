@@ -4,10 +4,11 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * @OA\Schema(
@@ -64,7 +65,6 @@ class User extends Authenticatable
         'terms_accepted_at',
         'created_by_ip',
     ];
-
     /**
      * The attributes that should be hidden for serialization.
      *
@@ -84,18 +84,18 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'last_login_at' => 'datetime',
-            'locked_until' => 'datetime',
-            'password_changed_at' => 'datetime',
-            'terms_accepted_at' => 'datetime',
-            'password' => 'hashed',
-            'is_active' => 'boolean',
-            'is_verified' => 'boolean',
-            'two_factor_enabled' => 'boolean',
+            'email_verified_at'     => 'datetime',
+            'last_login_at'         => 'datetime',
+            'locked_until'          => 'datetime',
+            'password_changed_at'   => 'datetime',
+            'terms_accepted_at'     => 'datetime',
+            'password'              => 'hashed',
+            'is_active'             => 'boolean',
+            'is_verified'           => 'boolean',
+            'two_factor_enabled'    => 'boolean',
             'force_password_change' => 'boolean',
-            'permissions' => 'array',
-            'preferences' => 'array',
+            'permissions'           => 'array',
+            'preferences'           => 'array',
             'failed_login_attempts' => 'integer',
         ];
     }
@@ -105,9 +105,7 @@ class User extends Authenticatable
      */
     public function roles()
     {
-        return $this->belongsToMany(Role::class, 'role_user')
-                    ->withPivot('store_id')
-                    ->withTimestamps();
+        return $this->belongsToMany(Role::class, 'role_user')->withPivot('store_id')->withTimestamps();
     }
 
     /**
@@ -142,6 +140,11 @@ class User extends Authenticatable
         return $this->hasMany(BillingInformation::class)->whereNull('deleted_at');
     }
 
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
     /**
      * Get Microsoft accounts for the user.
      */
@@ -155,7 +158,7 @@ class User extends Authenticatable
      */
     public function permissions()
     {
-        return $this->roles->flatMap(function ($role) {
+        return $this->roles->flatMap(function($role) {
             return $role->permissions;
         })->unique('id');
     }
@@ -286,7 +289,7 @@ class User extends Authenticatable
     public function unlockAccount(): void
     {
         $this->update([
-            'locked_until' => null,
+            'locked_until'          => null,
             'failed_login_attempts' => 0,
         ]);
     }
@@ -348,7 +351,7 @@ class User extends Authenticatable
     public function markPasswordChanged(): void
     {
         $this->update([
-            'password_changed_at' => now(),
+            'password_changed_at'   => now(),
             'force_password_change' => false,
         ]);
     }
@@ -385,6 +388,7 @@ class User extends Authenticatable
     public function softDeleteAccount(): bool
     {
         $this->update(['is_active' => false]);
+
         return $this->delete(); // Soft delete
     }
 
@@ -394,6 +398,7 @@ class User extends Authenticatable
     public function restoreAccount(): bool
     {
         $this->restore();
+
         return $this->update(['is_active' => true]);
     }
 
