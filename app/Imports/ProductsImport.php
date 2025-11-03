@@ -262,15 +262,21 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
         $billingPlan  = strtolower($billingPlan);
         $termDuration = strtolower($termDuration);
 
-        if ($billingPlan !== 'monthly' || $termDuration[2] === 'm') {
-            return 1;
-        }
+        $paysPerYear = match ($billingPlan) {
+            'annual' => 1,
+            'triennial' => 0,
+            default => 12,
+        };
 
-        if ($termDuration[2] === 'y') {
-            return intval($termDuration[1]) * 12;
-        }
+        $termDurationNumber = intval($termDuration[1]);
+        $termDurationUnit   = $termDuration[2];
 
-        return 1;
+        $termYears = match ($termDurationUnit) {
+            'y' => $termDurationNumber,
+            default => 0,
+        };
+
+        return max(($termYears * $paysPerYear), 1);
     }
 
     public function getCsvSettings(): array
