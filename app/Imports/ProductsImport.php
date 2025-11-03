@@ -245,18 +245,40 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
 
     private function calculateUnitPrice(Collection $row): string
     {
-        $unitPrice           = floatval($this->getColumnValue($row, self::COLUMN_UNIT_PRICE));
+        $rowUnitPrice = floatval($this->getColumnValue($row, self::COLUMN_UNIT_PRICE));
+
+        $billingPlan  = $this->getColumnValue($row, self::COLUMN_BILLING_PLAN);
+        $termDuration = $this->getColumnValue($row, self::COLUMN_TERM_DURATION);
+        $divisor      = $this->getUnitPriceDivisor($termDuration, $billingPlan);
+
+        $unitPrice           = max($rowUnitPrice, 0) / $divisor;
         $priceWithMultiplier = $unitPrice + (($unitPrice * $this->priceMultiplier) / 100);
 
         return number_format($priceWithMultiplier, 2, '.', '');
     }
 
+    private function getUnitPriceDivisor(string $termDuration, string $billingPlan): int
+    {
+        $billingPlan  = strtolower($billingPlan);
+        $termDuration = strtolower($termDuration);
+
+        if ($billingPlan !== 'monthly' || $termDuration[2] === 'm') {
+            return 1;
+        }
+
+        if ($termDuration[2] === 'y') {
+            return intval($termDuration[1]) * 12;
+        }
+
+        return 1;
+    }
+
     public function getCsvSettings(): array
     {
         return [
-            'input_encoding' => 'UTF-8',
-            'delimiter' => ',',
-            'enclosure' => '"',
+            'input_encoding'   => 'UTF-8',
+            'delimiter'        => ',',
+            'enclosure'        => '"',
             'escape_character' => '\\',
         ];
     }
