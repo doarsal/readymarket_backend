@@ -49,27 +49,143 @@ if (empty($MITEC_KEY_HEX) || empty($MITEC_ID_COMPANY)) {
     die("Error: No se pudieron cargar los datos de MITEC del archivo .env");
 }
 
-// Datos de transacción REALES
-$tx_reference = 'AMEX' . time(); // Referencia única de transacción
-$tx_amount = '1.00'; // 1 peso MXN
-$tx_currency = 'MXN';
-$cc_name = 'PAULINO MOTA HERNANDEZ';
-$cc_number = '379911307544370';
-$cc_expMonth = '12';
-$cc_expYear = '28';
-$cc_cvv = '6724';
+// Datos de transacción REALES - Usar valores del formulario o valores por defecto
+$tx_reference = $_POST['tx_reference'] ?? 'AMEX' . time();
+$tx_amount = $_POST['tx_amount'] ?? '2.00';
+$tx_currency = $_POST['tx_currency'] ?? 'MXN';
+$cc_name = $_POST['cc_name'] ?? 'PAULINO MOTA HERNANDEZ';
+$cc_number = $_POST['cc_number'] ?? '379911307544370';
+$cc_expMonth = $_POST['cc_expMonth'] ?? '12';
+$cc_expYear = $_POST['cc_expYear'] ?? '28';
+$cc_cvv = $_POST['cc_cvv'] ?? '6724';
+$bl_billingPhone = $_POST['bl_billingPhone'] ?? '5555555555';
+$bl_billingEmail = $_POST['bl_billingEmail'] ?? 'test@example.com';
+$tx_browserIP = $_POST['tx_browserIP'] ?? '187.184.8.88';
 $merchant = $MITEC_MERCHANT_AMEX; // Merchant AMEX desde .env
 
-echo "<h2>Generador de Cadena Encriptada MITEC</h2>";
-echo "<h3>Configuración cargada desde .env:</h3>";
-echo "<div style='background-color: #e8f5e8; padding: 10px; margin: 10px 0; border-radius: 5px;'>";
-echo "<strong>✅ Datos MITEC cargados correctamente:</strong><br>";
+$isFormSubmitted = !empty($_POST);
+
+echo "<!DOCTYPE html>";
+echo "<html lang='es'>";
+echo "<head>";
+echo "<meta charset='UTF-8'>";
+echo "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+echo "<title>Generador de Cadena Encriptada MITEC</title>";
+echo "<style>";
+echo "body { font-family: Arial, sans-serif; max-width: 1200px; margin: 20px auto; padding: 0 20px; }";
+echo ".form-container { background: #f8f9fa; padding: 25px; border-radius: 8px; margin: 20px 0; }";
+echo ".form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }";
+echo ".form-group { display: flex; flex-direction: column; }";
+echo ".form-group label { font-weight: bold; margin-bottom: 5px; color: #333; }";
+echo ".form-group input { padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }";
+echo ".btn-generate { background: #0d6efd; color: white; padding: 15px 40px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; }";
+echo ".btn-generate:hover { background: #0b5ed7; }";
+echo ".config-box { background: #e8f5e8; padding: 15px; margin: 20px 0; border-radius: 5px; border: 1px solid #c3e6cb; }";
+echo ".full-width { grid-column: 1 / -1; }";
+echo "h2 { color: #333; border-bottom: 2px solid #0d6efd; padding-bottom: 10px; }";
+echo "h3 { color: #555; margin-top: 25px; }";
+echo "textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px; }";
+echo "</style>";
+echo "</head>";
+echo "<body>";
+
+echo "<h2>🔐 Generador de Cadena Encriptada MITEC</h2>";
+
+// Mostrar configuración cargada
+echo "<div class='config-box'>";
+echo "<strong>✅ Configuración MITEC cargada desde .env:</strong><br>";
 echo "• ID Company: $MITEC_ID_COMPANY<br>";
 echo "• ID Branch: $MITEC_ID_BRANCH<br>";
 echo "• Country: $MITEC_COUNTRY<br>";
 echo "• User: $MITEC_BS_USER<br>";
 echo "• DATA0: $MITEC_DATA0<br>";
-echo "• Merchant AMEX: $merchant<br>";
+echo "• Merchant AMEX: $MITEC_MERCHANT_AMEX<br>";
+echo "</div>";
+
+// Formulario para ingresar datos de transacción
+if (!$isFormSubmitted) {
+    echo "<h3>📝 Ingresa los datos de la transacción:</h3>";
+    echo "<form method='POST' class='form-container'>";
+    
+    echo "<div class='form-row'>";
+    echo "<div class='form-group'>";
+    echo "<label for='tx_reference'>Referencia de Transacción:</label>";
+    echo "<input type='text' id='tx_reference' name='tx_reference' value='AMEX" . time() . "' required>";
+    echo "</div>";
+    echo "<div class='form-group'>";
+    echo "<label for='tx_amount'>Monto:</label>";
+    echo "<input type='text' id='tx_amount' name='tx_amount' value='2.00' placeholder='2.00' required pattern='[0-9]+\.?[0-9]*'>";
+    echo "</div>";
+    echo "</div>";
+    
+    echo "<div class='form-row'>";
+    echo "<div class='form-group'>";
+    echo "<label for='tx_currency'>Moneda:</label>";
+    echo "<input type='text' id='tx_currency' name='tx_currency' value='MXN' required>";
+    echo "</div>";
+    echo "<div class='form-group'>";
+    echo "<label for='cc_name'>Nombre en la Tarjeta:</label>";
+    echo "<input type='text' id='cc_name' name='cc_name' value='' required>";
+    echo "</div>";
+    echo "</div>";
+    
+    echo "<div class='form-row'>";
+    echo "<div class='form-group'>";
+    echo "<label for='cc_number'>Número de Tarjeta:</label>";
+    echo "<input type='text' id='cc_number' name='cc_number' value='' required pattern='[0-9]{13,19}'>";
+    echo "</div>";
+    echo "<div class='form-group'>";
+    echo "<label for='cc_cvv'>CVV:</label>";
+    echo "<input type='text' id='cc_cvv' name='cc_cvv' value='' required pattern='[0-9]{3,4}'>";
+    echo "</div>";
+    echo "</div>";
+    
+    echo "<div class='form-row'>";
+    echo "<div class='form-group'>";
+    echo "<label for='cc_expMonth'>Mes de Expiración (MM):</label>";
+    echo "<input type='text' id='cc_expMonth' name='cc_expMonth' value='' required pattern='(0[1-9]|1[0-2])'>";
+    echo "</div>";
+    echo "<div class='form-group'>";
+    echo "<label for='cc_expYear'>Año de Expiración (YY):</label>";
+    echo "<input type='text' id='cc_expYear' name='cc_expYear' value='' required pattern='[0-9]{2}'>";
+    echo "</div>";
+    echo "</div>";
+    
+    echo "<div class='form-row'>";
+    echo "<div class='form-group'>";
+    echo "<label for='bl_billingPhone'>Teléfono de Facturación:</label>";
+    echo "<input type='text' id='bl_billingPhone' name='bl_billingPhone' value='5555555555' required>";
+    echo "</div>";
+    echo "<div class='form-group'>";
+    echo "<label for='bl_billingEmail'>Email de Facturación:</label>";
+    echo "<input type='email' id='bl_billingEmail' name='bl_billingEmail' value='test@example.com' required>";
+    echo "</div>";
+    echo "</div>";
+    
+    echo "<div class='form-row'>";
+    echo "<div class='form-group full-width'>";
+    echo "<label for='tx_browserIP'>IP del Navegador:</label>";
+    echo "<input type='text' id='tx_browserIP' name='tx_browserIP' value='187.184.8.88' required>";
+    echo "</div>";
+    echo "</div>";
+    
+    echo "<button type='submit' class='btn-generate'>🔐 Generar Cadena Encriptada</button>";
+    echo "</form>";
+    
+    echo "</body></html>";
+    exit; // Detener la ejecución hasta que se envíe el formulario
+}
+
+// Si el formulario fue enviado, mostrar resultados
+echo "<div class='config-box' style='background: #d1ecf1; border-color: #bee5eb;'>";
+echo "<strong>📋 Datos ingresados:</strong><br>";
+echo "• Referencia: $tx_reference<br>";
+echo "• Monto: $$tx_amount $tx_currency<br>";
+echo "• Tarjeta: $cc_name - " . substr($cc_number, 0, 4) . "****" . substr($cc_number, -4) . "<br>";
+echo "• Expiración: $cc_expMonth/$cc_expYear<br>";
+echo "• Email: $bl_billingEmail<br>";
+echo "• Teléfono: $bl_billingPhone<br>";
+echo "• IP: $tx_browserIP<br>";
 echo "</div>";
 
 // Construir el XML EXACTO como te lo compartieron
@@ -96,12 +212,12 @@ $fullXml = <<<XML
 <cc_cvv>{$cc_cvv}</cc_cvv>
 </creditcard>
 <billing>
-<bl_billingPhone>5555555555</bl_billingPhone>
-<bl_billingEmail>test@example.com</bl_billingEmail>
+<bl_billingPhone>{$bl_billingPhone}</bl_billingPhone>
+<bl_billingEmail>{$bl_billingEmail}</bl_billingEmail>
 </billing>
 <tx_urlResponse>https://api.myreadymarket.com/response.php?token={$tx_reference}</tx_urlResponse>
 <tx_cobro>1</tx_cobro>
-<tx_browserIP>187.184.8.88</tx_browserIP>
+<tx_browserIP>{$tx_browserIP}</tx_browserIP>
 </transaction>
 </TRANSACTION3DS>
 XML;
@@ -131,6 +247,13 @@ echo "</div>";
 
 echo "<hr><h2 style='margin-top: 30px;'>🚀 Formulario de Pago - Clic para probar:</h2>";
 ?>
+
+<!-- Botón para volver al formulario -->
+<form method="GET" style="margin: 20px 0;">
+    <button type="submit" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+        ← Volver a ingresar datos
+    </button>
+</form>
 
 <!-- Formulario HTML renderizado directamente -->
 <form name="cliente" action="<?php echo $actionUrl; ?>" method="post" style="margin: 20px 0;">
