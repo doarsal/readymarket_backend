@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
 /**
  * @OA\Schema(
@@ -95,12 +96,12 @@ class Cart extends Model
 
     public function checkOutItems(): BelongsToMany
     {
-        return $this->belongsToMany(CheckOutItem::class)->withTimestamps();
+        return $this->belongsToMany(CheckOutItem::class);
     }
 
-    public function activeCheckOutItems(): HasMany
+    public function cartCheckOutItems(): HasMany
     {
-        return $this->hasMany(CheckOutItem::class)->active();
+        return $this->hasMany(CartCheckOutItem::class);
     }
 
     /**
@@ -137,11 +138,56 @@ class Cart extends Model
     /**
      * Calcular subtotal dinámico
      */
-    public function getSubtotalAttribute(): float
+    public function getSubtotalItemsAttribute(): float
     {
         return round($this->activeItems->sum(function($item) {
             return $item->total_price; // Usa el accessor dinámico del CartItem
         }), 2);
+    }
+
+    /**
+     * Calcular subtotal dinámico
+     */
+    public function getSubtotalAttribute(): float
+    {
+        return round($this->subtotal_items + $this->subtotal_check_out_items, 2);
+    }
+
+    /**
+     * Calcular subtotal de los check out items
+     */
+    public function getSubtotalCheckOutItemsAttribute(): float
+    {
+        return round($this->cartCheckOutItems()->with('checkOutItem')->get()->sum(function(CartCheckOutItem $item) {
+            if(!$item->status) {
+                return 0;
+            }
+
+            return $item->checkOutItem->getPriceWithCart($this) ?? 0;
+        }), 2);
+    }
+
+    public function getCheckOutItems(): Collection
+    {
+        return $this->cartCheckOutItems()->whereHas('checkOutItem', function($query) {
+            $query->where('is_active', true);
+        })->with('checkOutItem')->get()->map(function(CartCheckOutItem $cartCheckOutItem) {
+            $item = $cartCheckOutItem->checkOutItem;
+            return [
+                'id'                   => $cartCheckOutItem->getKey(),
+                'check_out_item_id'    => $item->getKey(),
+                'item'                 => $item->item,
+                'description'          => $item->description,
+                'price'                => number_format($item->getPriceWithCart($this), 2),
+                'default'              => $item->default,
+                'min_cart_amount'      => $item->min_cart_amount ? number_format($item->min_cart_amount, 2) : null,
+                'max_cart_amount'      => $item->max_cart_amount ? number_format($item->max_cart_amount, 2) : null,
+                'percentage_of_amount' => $item->percentage_of_amount,
+                'help_text'            => $item->help_text,
+                'help_cta'             => $item->help_cta,
+                'status'               => $cartCheckOutItem->status,
+            ];
+        })->values();
     }
 
     /**

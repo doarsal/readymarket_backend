@@ -95,6 +95,7 @@ return [
     */
 
     'store_id' => env('STORE_ID', 1),
+    'default_currency' => env('DEFAULT_CURRENCY', 'USD'),
 
     /*
     |--------------------------------------------------------------------------

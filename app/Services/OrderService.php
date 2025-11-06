@@ -10,6 +10,7 @@ use App\Models\PaymentSession;
 use App\Models\Currency;
 use App\Services\PurchaseConfirmationEmailService;
 use App\Services\WhatsAppNotificationService;
+use Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -54,7 +55,7 @@ class OrderService
                 'subtotal' => $cart->subtotal,
                 'tax_amount' => $cart->tax_amount,
                 'total_amount' => $cart->total_amount,
-                'currency_id' => $cart->currency_id ?? 1, // Default currency (MXN) si es NULL
+                'currency_id' => $cart->currency_id ?? 2, // Default currency (MXN) si es NULL
                 'exchange_rate' => 1.0000, // Asumiendo MXN por defecto
                 'exchange_rate_date' => now(),
                 'payment_method' => $paymentSession?->payment_method ?? 'credit_card', // Usar el tipo de tarjeta de la sesión o default a credit_card
@@ -261,7 +262,7 @@ class OrderService
                 'reference' => $paymentResponse->transaction_reference,
                 'auth_code' => $paymentResponse->auth_code,
                 'amount' => $paymentResponse->amount,
-                'currency' => $order->currency->code ?? 'MXN',
+                'currency' => $order->currency->code ?? Config::get('app.default_currency'),
                 'processed_at' => $paymentResponse->created_at->toISOString()
             ];
 

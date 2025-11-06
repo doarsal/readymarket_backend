@@ -80,7 +80,7 @@ class AuthController extends Controller
                 'string',
                 'min:8',
                 'confirmed',
-                'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/',
+                'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]+/',
             ],
             'phone' => [
                 'required',
@@ -88,7 +88,7 @@ class AuthController extends Controller
                 'regex:/^52[1-9]\d{9}$/', // Formato: 52 + lada (1 dígito) + número (9 dígitos) = 12 dígitos total
             ],
         ], [
-            'password.regex' => 'La contraseña debe contener al menos: 1 mayúscula, 1 minúscula, 1 número y 1 símbolo (@$!%*?&).',
+            'password.regex' => 'La contraseña debe contener al menos: 1 mayúscula, 1 minúscula, 1 número y 1 símbolo (@$!%*?&#).',
             'phone.required' => 'El teléfono es obligatorio.',
             'phone.regex' => 'El teléfono debe tener el formato: 52 + lada + número',
         ]);

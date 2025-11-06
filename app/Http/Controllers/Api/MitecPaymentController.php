@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 /**
  * @OA\Tag(
@@ -108,7 +109,6 @@ class MitecPaymentController extends Controller
                 'user_id'                => $userId,
             ]);
 
-            $cart = null;
             if ($cartToken) {
                 $cart = Cart::where('cart_token', $cartToken)->first();
                 if ($cart) {
@@ -198,22 +198,6 @@ class MitecPaymentController extends Controller
                             'line' => $dbError->getLine(),
                         ],
                     ], 500);
-                }
-
-                // Agregar los check out items al cart si el payment esta correcto
-                if ($cart && $requestCheckOutItems = $request->get('check_out_items')) {
-                    $checkOutItems = Collection::make($requestCheckOutItems)->map(function($item) use ($cart) {
-                        return [
-                            'cart_id'           => $cart->getKey(),
-                            'check_out_item_id' => $item['id'],
-                            'created_at'        => Carbon::now(),
-                            'updated_at'        => Carbon::now(),
-                        ];
-                    })->all();
-
-                    $cart->checkOutItems()->detach();
-
-                    CartCheckOutItem::upsert($checkOutItems, ['cart_id', 'check_out_item_id'], ['updated_at']);
                 }
 
                 return response()->json([

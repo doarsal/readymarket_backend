@@ -16,6 +16,7 @@
 /public/build
 /public/hot
 /public/storage
+/public/web.config
 /storage/*.key
 /storage/pail
 /vendor
