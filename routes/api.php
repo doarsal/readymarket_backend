@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\CurrencyController;
 use App\Http\Controllers\Api\ExchangeRateController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\LanguageController;
+use App\Http\Controllers\Api\LicenseController;
 use App\Http\Controllers\Api\MicrosoftAccountController;
 use App\Http\Controllers\Api\MitecPaymentController;
 use App\Http\Controllers\Api\OrderController;
@@ -381,6 +382,23 @@ Route::prefix('v1')->group(function() {
             Route::post('{id}/process-microsoft', [OrderController::class, 'processMicrosoft']);
             Route::post('{id}/provision',
                 [\App\Http\Controllers\Api\OrderProvisioningController::class, 'processOrder']);
+        });
+
+        // User Licenses endpoints
+        Route::prefix('user')->group(function() {
+            Route::get('licenses', [LicenseController::class, 'index']);
+            Route::get('licenses/{id}', [LicenseController::class, 'show']);
+        });
+
+        // License management endpoints
+        Route::prefix('licenses')->group(function() {
+            Route::post('{id}/cancel', [LicenseController::class, 'cancel']);
+            Route::post('{id}/toggle-auto-renew', [LicenseController::class, 'toggleAutoRenew']);
+        });
+
+        // Microsoft Account Licenses endpoints
+        Route::prefix('microsoft-accounts')->group(function() {
+            Route::get('{accountId}/licenses', [LicenseController::class, 'byAccount']);
         });
 
         // Order Provisioning endpoints (Partner Center integration)

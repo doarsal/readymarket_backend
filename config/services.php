@@ -82,6 +82,10 @@ return [
         // Security
         'fake_mode' => env('MICROSOFT_FAKE_MODE', false),
         'log_sensitive_data' => env('MICROSOFT_LOG_SENSITIVE_DATA', false),
+
+        // Auto-Renewal Configuration
+        'auto_renew_subscriptions' => env('MICROSOFT_AUTO_RENEW_SUBSCRIPTIONS', true),
+        'default_renewal_term' => env('MICROSOFT_DEFAULT_RENEWAL_TERM', 'P1Y'), // P1M (1 month), P1Y (1 year), P3Y (3 years)
     ],
 
 ];

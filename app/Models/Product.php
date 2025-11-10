@@ -257,4 +257,96 @@ class Product extends Model
 
         return "{$this->ProductId}:{$this->SkuId}:{$this->Id}";
     }
+
+    /**
+     * Determine if this product supports auto-renewal
+     * Based on Microsoft product data (BillingPlan, TermDuration, ProductTitle)
+     *
+     * @return bool
+     */
+    public function supportsAutoRenew(): bool
+    {
+        $billingPlan = $this->BillingPlan;
+        $termDuration = $this->TermDuration;
+        $productTitle = $this->ProductTitle ?? '';
+
+        // One-time billing doesn't support auto-renew
+        if (in_array(strtolower($billingPlan), ['onetime', 'one_time', 'none'])) {
+            return false;
+        }
+
+        // No term duration = no renewal
+        if (empty($termDuration)) {
+            return false;
+        }
+
+        // Perpetual licenses don't renew
+        if (stripos($productTitle, 'Perpetual') !== false) {
+            return false;
+        }
+
+        // Azure Prepaid credits are one-time despite P1M term
+        if ($termDuration === 'P1M' &&
+            (stripos($productTitle, 'Prepago') !== false ||
+             stripos($productTitle, 'Prepaid') !== false ||
+             stripos($productTitle, 'Azure Credit') !== false)) {
+            return false;
+        }
+
+        // Reserved Instances are long-term commitments, not auto-renewable
+        if (stripos($productTitle, 'Reserved Instance') !== false ||
+            stripos($productTitle, 'Reservation') !== false) {
+            return false;
+        }
+
+        // Monthly, Annual, Triennial billing supports auto-renew
+        if (in_array(strtolower($billingPlan), ['monthly', 'annual', 'triennial'])) {
+            return true;
+        }
+
+        // Default: conservative approach
+        return false;
+    }
+
+    /**
+     * Get human-readable description of why product doesn't support auto-renewal
+     *
+     * @return string|null
+     */
+    public function getAutoRenewIneligibilityReason(): ?string
+    {
+        if ($this->supportsAutoRenew()) {
+            return null;
+        }
+
+        $billingPlan = strtolower($this->BillingPlan ?? '');
+        $termDuration = $this->TermDuration;
+        $productTitle = $this->ProductTitle ?? '';
+
+        if (in_array($billingPlan, ['onetime', 'one_time', 'none'])) {
+            return 'One-time purchase - no recurring billing';
+        }
+
+        if (empty($termDuration)) {
+            return 'No term duration specified';
+        }
+
+        if (stripos($productTitle, 'Perpetual') !== false) {
+            return 'Perpetual license - no expiration';
+        }
+
+        if (stripos($productTitle, 'Prepago') !== false ||
+            stripos($productTitle, 'Prepaid') !== false ||
+            stripos($productTitle, 'Azure Credit') !== false) {
+            return 'Prepaid credit - one-time purchase';
+        }
+
+        if (stripos($productTitle, 'Reserved Instance') !== false ||
+            stripos($productTitle, 'Reservation') !== false) {
+            return 'Reserved Instance - long-term commitment';
+        }
+
+        return 'Product type does not support auto-renewal';
+    }
 }
+

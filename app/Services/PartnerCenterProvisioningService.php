@@ -352,7 +352,120 @@ class PartnerCenterProvisioningService
             $lineItem['termDuration'] = $termDuration;
         }
 
+        // Add auto-renewal configuration if product supports it
+        if ($this->productSupportsAutoRenew($product)) {
+            $renewalTerm = config('services.microsoft.default_renewal_term');
+            if ($renewalTerm) {
+                $lineItem['renewsTo'] = [
+                    'termDuration' => $renewalTerm
+                ];
+
+                Log::info("Auto-renewal configured for product", [
+                    'product_id' => $product->idproduct,
+                    'product_title' => $product->ProductTitle,
+                    'billing_plan' => $product->BillingPlan,
+                    'term_duration' => $termDuration,
+                    'renewal_term' => $renewalTerm
+                ]);
+            }
+        } else {
+            Log::info("Product does not support auto-renewal", [
+                'product_id' => $product->idproduct,
+                'product_title' => $product->ProductTitle,
+                'billing_plan' => $product->BillingPlan,
+                'term_duration' => $termDuration
+            ]);
+        }
+
         return $lineItem;
+    }
+
+    /**
+     * Determine if a product supports auto-renewal based on its properties
+     *
+     * Uses Microsoft product data fields to determine renewability:
+     * - BillingPlan: One-time purchases don't renew
+     * - TermDuration: Products without a term don't renew
+     * - ProductTitle: Identifies special cases (Perpetual, Prepaid, etc.)
+     *
+     * @param Product $product
+     * @return bool
+     */
+    private function productSupportsAutoRenew($product): bool
+    {
+        // Check if auto-renew is globally enabled
+        if (!config('services.microsoft.auto_renew_subscriptions', true)) {
+            return false;
+        }
+
+        $billingPlan = $product->BillingPlan;
+        $termDuration = $product->TermDuration;
+        $productTitle = $product->ProductTitle ?? '';
+
+        // Rule 1: One-time billing cycles don't support auto-renew
+        // Examples: Azure Reservations, Perpetual Software
+        if (in_array(strtolower($billingPlan), ['onetime', 'one_time', 'none'])) {
+            Log::debug("Product rejected: One-time billing", [
+                'product' => $productTitle,
+                'billing_plan' => $billingPlan
+            ]);
+            return false;
+        }
+
+        // Rule 2: Products without a term duration generally don't support auto-renew
+        if (empty($termDuration)) {
+            Log::debug("Product rejected: No term duration", [
+                'product' => $productTitle
+            ]);
+            return false;
+        }
+
+        // Rule 3: Perpetual licenses don't renew
+        if (stripos($productTitle, 'Perpetual') !== false) {
+            Log::debug("Product rejected: Perpetual license", [
+                'product' => $productTitle
+            ]);
+            return false;
+        }
+
+        // Rule 4: Azure Prepaid credits are special case (one-time despite P1M term)
+        if ($termDuration === 'P1M' &&
+            (stripos($productTitle, 'Prepago') !== false ||
+             stripos($productTitle, 'Prepaid') !== false ||
+             stripos($productTitle, 'Azure Credit') !== false)) {
+            Log::debug("Product rejected: Azure prepaid credit", [
+                'product' => $productTitle
+            ]);
+            return false;
+        }
+
+        // Rule 5: Reserved Instances don't auto-renew (they're long-term commitments)
+        if (stripos($productTitle, 'Reserved Instance') !== false ||
+            stripos($productTitle, 'Reservation') !== false) {
+            Log::debug("Product rejected: Reserved Instance", [
+                'product' => $productTitle
+            ]);
+            return false;
+        }
+
+        // Rule 6: Products with monthly, annual, or triennial billing DO support auto-renew
+        // These are typically NCE license-based subscriptions (Microsoft 365, Office, etc.)
+        if (in_array(strtolower($billingPlan), ['monthly', 'annual', 'triennial'])) {
+            Log::debug("Product accepted: Recurring billing", [
+                'product' => $productTitle,
+                'billing_plan' => $billingPlan,
+                'term_duration' => $termDuration
+            ]);
+            return true;
+        }
+
+        // Default: Conservative approach - don't enable auto-renew unless we're sure
+        Log::debug("Product rejected: Default conservative rule", [
+            'product' => $productTitle,
+            'billing_plan' => $billingPlan,
+            'term_duration' => $termDuration
+        ]);
+        return false;
     }
 
     /**
@@ -425,6 +538,12 @@ class PartnerCenterProvisioningService
             'microsoft_account_id' => $order->microsoft_account_id,
             'product_id' => $cartItem->product_id,
             'sku_id' => $product ? $product->SkuId : null,
+            // Microsoft subscription dates
+            'effective_start_date' => isset($item['effectiveStartDate']) ? \Carbon\Carbon::parse($item['effectiveStartDate']) : null,
+            'commitment_end_date' => isset($item['commitmentEndDate']) ? \Carbon\Carbon::parse($item['commitmentEndDate']) : null,
+            'cancellation_allowed_until_date' => isset($item['cancellationAllowedUntilDate']) ? \Carbon\Carbon::parse($item['cancellationAllowedUntilDate']) : null,
+            'auto_renew_enabled' => $item['autoRenewEnabled'] ?? false,
+            'billing_cycle' => $item['billingCycle'] ?? null,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -554,8 +673,8 @@ class PartnerCenterProvisioningService
                 // Capture Microsoft error details for error responses
                 $this->microsoftErrorDetails = [
                     'http_status' => $response->status(),
-                    'error_code' => $responseBody['code'] ?? null,
-                    'description' => $responseBody['description'] ?? null,
+                    'error_code' => $data['code'] ?? null,
+                    'description' => $data['description'] ?? null,
                     'raw_response' => $response->body(),
                     'correlation_id' => $response->header('MS-CorrelationId'),
                     'request_id' => $response->header('MS-RequestId'),
@@ -563,8 +682,6 @@ class PartnerCenterProvisioningService
 
                 throw new Exception('Failed to checkout cart in Microsoft Partner Center: HTTP ' . $response->status());
             }
-
-            $data = $response->json();
 
             return $data;
 

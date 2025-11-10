@@ -28,13 +28,22 @@ class Subscription extends Model
         'product_id',
         'sku_id',
         'created_by',
-        'modified_by'
+        'modified_by',
+        'effective_start_date',
+        'commitment_end_date',
+        'auto_renew_enabled',
+        'billing_cycle',
+        'cancellation_allowed_until_date'
     ];
 
     protected $casts = [
         'quantity' => 'integer',
         'pricing' => 'decimal:2',
         'status' => 'integer',
+        'auto_renew_enabled' => 'boolean',
+        'effective_start_date' => 'datetime',
+        'commitment_end_date' => 'datetime',
+        'cancellation_allowed_until_date' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime'
@@ -46,6 +55,21 @@ class Subscription extends Model
     public function order()
     {
         return $this->belongsTo(Order::class, 'order_id');
+    }
+
+    /**
+     * Get the user through the order relationship
+     */
+    public function user()
+    {
+        return $this->hasOneThrough(
+            User::class,
+            Order::class,
+            'id',           // Foreign key on orders table
+            'id',           // Foreign key on users table
+            'order_id',     // Local key on subscriptions table
+            'user_id'       // Local key on orders table
+        );
     }
 
     /**
