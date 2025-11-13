@@ -10,19 +10,20 @@ use App\Models\Product;
 use App\Models\MicrosoftAccount;
 use App\Models\Subscription;
 use App\Services\MicrosoftErrorNotificationService;
+use App\Services\MicrosoftAuthService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
 
 class PartnerCenterProvisioningService
 {
-    private $tokenEndpoint;
     private $partnerCenterApiUrl;
     private $microsoftErrorDetails = [];
+    private $authService;
 
-    public function __construct()
+    public function __construct(MicrosoftAuthService $authService)
     {
-        $this->tokenEndpoint = config('services.microsoft.credentials_url');
+        $this->authService = $authService;
         $this->partnerCenterApiUrl = config('services.microsoft.partner_center_base_url');
     }
 
@@ -224,27 +225,7 @@ class PartnerCenterProvisioningService
     private function getMicrosoftToken(): string
     {
         try {
-            $response = Http::timeout(config('services.microsoft.token_timeout', 60))->get($this->tokenEndpoint);
-
-            if (!$response->successful()) {
-                // Capturar detalles del error de token
-                $this->microsoftErrorDetails = [
-                    'http_status' => $response->status(),
-                    'raw_response' => $response->body(),
-                    'endpoint' => $this->tokenEndpoint,
-                    'error_type' => 'token_authentication'
-                ];
-                throw new Exception('Failed to get Microsoft token: HTTP ' . $response->status());
-            }
-
-            $data = $response->json();
-
-            if (!isset($data['item']['token'])) {
-                throw new Exception('Invalid token response from Microsoft');
-            }
-
-            return $data['item']['token'];
-
+            return $this->authService->getAccessToken();
         } catch (Exception $e) {
             throw new Exception('Failed to authenticate with Microsoft Partner Center: ' . $e->getMessage());
         }
@@ -352,30 +333,10 @@ class PartnerCenterProvisioningService
             $lineItem['termDuration'] = $termDuration;
         }
 
-        // Add auto-renewal configuration if product supports it
-        if ($this->productSupportsAutoRenew($product)) {
-            $renewalTerm = config('services.microsoft.default_renewal_term');
-            if ($renewalTerm) {
-                $lineItem['renewsTo'] = [
-                    'termDuration' => $renewalTerm
-                ];
-
-                Log::info("Auto-renewal configured for product", [
-                    'product_id' => $product->idproduct,
-                    'product_title' => $product->ProductTitle,
-                    'billing_plan' => $product->BillingPlan,
-                    'term_duration' => $termDuration,
-                    'renewal_term' => $renewalTerm
-                ]);
-            }
-        } else {
-            Log::info("Product does not support auto-renewal", [
-                'product_id' => $product->idproduct,
-                'product_title' => $product->ProductTitle,
-                'billing_plan' => $product->BillingPlan,
-                'term_duration' => $termDuration
-            ]);
-        }
+        // NOTE: renewsTo should NOT be added during cart creation
+        // Microsoft Partner Center rejects carts with renewsTo field during creation
+        // Auto-renewal is configured automatically by Microsoft based on subscription settings
+        // The renewsTo field is only valid when updating existing subscriptions
 
         return $lineItem;
     }
@@ -524,7 +485,11 @@ class PartnerCenterProvisioningService
         $item = $checkoutResponse['orders'][0]['lineItems'][0];
         $product = $cartItem->product;
 
-        Subscription::create([
+        // Determine if this is a perpetual license (one-time purchase)
+        $isPerpetual = $this->isPerpetualLicense($product);
+
+        // Create subscription with initial data from checkout response
+        $subscription = Subscription::create([
             'order_id' => $order->id,
             'subscription_identifier' => $order->order_number,
             'offer_id' => $item['offerId'] ?? null,
@@ -542,11 +507,150 @@ class PartnerCenterProvisioningService
             'effective_start_date' => isset($item['effectiveStartDate']) ? \Carbon\Carbon::parse($item['effectiveStartDate']) : null,
             'commitment_end_date' => isset($item['commitmentEndDate']) ? \Carbon\Carbon::parse($item['commitmentEndDate']) : null,
             'cancellation_allowed_until_date' => isset($item['cancellationAllowedUntilDate']) ? \Carbon\Carbon::parse($item['cancellationAllowedUntilDate']) : null,
-            'auto_renew_enabled' => $item['autoRenewEnabled'] ?? false,
+            // Perpetual licenses don't auto-renew (one-time purchase)
+            'auto_renew_enabled' => $isPerpetual ? false : ($item['autoRenewEnabled'] ?? true),
             'billing_cycle' => $item['billingCycle'] ?? null,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        // Fetch actual auto-renewal status from Microsoft ONLY for subscription-based products
+        // Perpetual licenses (one-time purchases) don't have auto-renewal
+        if (!$isPerpetual && isset($item['subscriptionId']) && $order->microsoftAccount) {
+            try {
+                $token = $this->getMicrosoftToken();
+                $customerId = $order->microsoftAccount->microsoft_id;
+                $subscriptionId = $item['subscriptionId'];
+
+                $subscriptionDetails = $this->getSubscriptionFromMicrosoft($customerId, $subscriptionId, $token);
+
+                if (isset($subscriptionDetails['autoRenewEnabled'])) {
+                    // Update subscription with all available data from Microsoft
+                    $updateData = [
+                        'auto_renew_enabled' => $subscriptionDetails['autoRenewEnabled'],
+                        'billing_cycle' => $subscriptionDetails['billingCycle'] ?? $subscription->billing_cycle,
+                    ];
+
+                    // Add dates if available
+                    if (isset($subscriptionDetails['effectiveStartDate'])) {
+                        $updateData['effective_start_date'] = \Carbon\Carbon::parse($subscriptionDetails['effectiveStartDate']);
+                    }
+                    if (isset($subscriptionDetails['commitmentEndDate'])) {
+                        $updateData['commitment_end_date'] = \Carbon\Carbon::parse($subscriptionDetails['commitmentEndDate']);
+                    }
+                    if (isset($subscriptionDetails['cancellationAllowedUntilDate'])) {
+                        $updateData['cancellation_allowed_until_date'] = \Carbon\Carbon::parse($subscriptionDetails['cancellationAllowedUntilDate']);
+                    }
+
+                    $subscription->update($updateData);
+
+                    Log::info('Updated subscription with data from Microsoft', [
+                        'subscription_id' => $subscriptionId,
+                        'auto_renew_enabled' => $subscriptionDetails['autoRenewEnabled'],
+                        'billing_cycle' => $subscriptionDetails['billingCycle'] ?? null,
+                        'dates_updated' => isset($subscriptionDetails['commitmentEndDate'])
+                    ]);
+                }
+            } catch (\Exception $e) {
+                // Don't fail if we can't fetch the details, just log it
+                Log::warning('Could not fetch subscription details from Microsoft to update auto-renewal status', [
+                    'subscription_id' => $item['subscriptionId'] ?? null,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        } elseif ($isPerpetual) {
+            // For perpetual licenses, still fetch and save dates (especially cancellation date)
+            if (isset($item['subscriptionId']) && $order->microsoftAccount) {
+                try {
+                    $token = $this->getMicrosoftToken();
+                    $customerId = $order->microsoftAccount->microsoft_id;
+                    $subscriptionId = $item['subscriptionId'];
+
+                    $subscriptionDetails = $this->getSubscriptionFromMicrosoft($customerId, $subscriptionId, $token);
+
+                    // Update dates for perpetual license
+                    $updateData = [
+                        'billing_cycle' => $subscriptionDetails['billingCycle'] ?? 'one_time',
+                    ];
+
+                    if (isset($subscriptionDetails['effectiveStartDate'])) {
+                        $updateData['effective_start_date'] = \Carbon\Carbon::parse($subscriptionDetails['effectiveStartDate']);
+                    }
+                    if (isset($subscriptionDetails['commitmentEndDate'])) {
+                        $updateData['commitment_end_date'] = \Carbon\Carbon::parse($subscriptionDetails['commitmentEndDate']);
+                    }
+                    if (isset($subscriptionDetails['cancellationAllowedUntilDate'])) {
+                        $updateData['cancellation_allowed_until_date'] = \Carbon\Carbon::parse($subscriptionDetails['cancellationAllowedUntilDate']);
+                    }
+
+                    $subscription->update($updateData);
+
+                    Log::info('Perpetual license created with dates from Microsoft', [
+                        'product_id' => $product->idproduct,
+                        'product_title' => $product->ProductTitle,
+                        'billing_plan' => $product->BillingPlan,
+                        'commitment_end_date' => $subscriptionDetails['commitmentEndDate'] ?? null
+                    ]);
+                } catch (\Exception $e) {
+                    Log::warning('Could not fetch perpetual license details from Microsoft', [
+                        'subscription_id' => $item['subscriptionId'] ?? null,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            } else {
+                Log::info('Perpetual license created - auto-renewal not applicable', [
+                    'product_id' => $product->idproduct,
+                    'product_title' => $product->ProductTitle,
+                    'billing_plan' => $product->BillingPlan
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Determine if a product is a perpetual license (one-time purchase)
+     */
+    private function isPerpetualLicense($product): bool
+    {
+        if (!$product) {
+            return false;
+        }
+
+        $billingPlan = strtolower($product->BillingPlan ?? '');
+        $productTitle = $product->ProductTitle ?? '';
+
+        // Check billing plan
+        if (in_array($billingPlan, ['onetime', 'one-time', 'one_time'])) {
+            return true;
+        }
+
+        // Check product title for "Perpetual"
+        if (stripos($productTitle, 'Perpetual') !== false) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Get subscription details from Microsoft Partner Center
+     */
+    private function getSubscriptionFromMicrosoft(string $customerId, string $subscriptionId, string $token): array
+    {
+        $url = $this->partnerCenterApiUrl . "/customers/{$customerId}/subscriptions/{$subscriptionId}";
+
+        $response = Http::withToken($token)
+            ->withHeaders([
+                'MS-CorrelationId' => (string) \Illuminate\Support\Str::uuid(),
+                'MS-RequestId' => (string) \Illuminate\Support\Str::uuid()
+            ])
+            ->get($url);
+
+        if (!$response->successful()) {
+            throw new Exception('Failed to get subscription from Microsoft: HTTP ' . $response->status());
+        }
+
+        return $response->json();
     }
 
     /**
@@ -655,6 +759,20 @@ class PartnerCenterProvisioningService
             if (!$response->successful()) {
                 // Capture Microsoft error details for checkout failures
                 $responseBody = $response->json();
+
+                // If error code is 800002 (cart has line items with errors), get cart details
+                if (isset($responseBody['code']) && $responseBody['code'] == 800002) {
+                    $cartDetails = $this->getMicrosoftCart($customerId, $cartId, $token);
+
+                    // Log line item errors
+                    if (isset($cartDetails['lineItems'])) {
+                        Log::error('Microsoft Cart Line Items with Errors:', [
+                            'cart_id' => $cartId,
+                            'line_items' => $cartDetails['lineItems']
+                        ]);
+                    }
+                }
+
                 $this->microsoftErrorDetails = [
                     'http_status' => $response->status(),
                     'error_code' => $responseBody['code'] ?? null,
@@ -687,6 +805,36 @@ class PartnerCenterProvisioningService
 
         } catch (Exception $e) {
             throw $e;
+        }
+    }
+
+    /**
+     * Get cart details from Microsoft Partner Center
+     */
+    private function getMicrosoftCart(string $customerId, string $cartId, string $token): array
+    {
+        try {
+            $url = "{$this->partnerCenterApiUrl}/customers/{$customerId}/carts/{$cartId}";
+
+            $response = Http::timeout(60)
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . $token
+                ])
+                ->get($url);
+
+            if (!$response->successful()) {
+                Log::error('Failed to get cart details from Microsoft', [
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+                return [];
+            }
+
+            return $response->json();
+
+        } catch (Exception $e) {
+            Log::error('Exception getting cart details', ['error' => $e->getMessage()]);
+            return [];
         }
     }
 

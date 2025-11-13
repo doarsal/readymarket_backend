@@ -58,7 +58,13 @@ return [
     ],
 
     'microsoft' => [
-        'credentials_url' => env('MICROSOFT_CREDENTIALS_URL'),
+        // OAuth Credentials (direct authentication)
+        'tenant_id' => env('MICROSOFT_TENANT_ID'),
+        'client_id' => env('MICROSOFT_CLIENT_ID'),
+        'client_secret' => env('MICROSOFT_CLIENT_SECRET'),
+        'api_scope' => env('MICROSOFT_API_SCOPE', 'https://api.partnercenter.microsoft.com/.default'),
+
+        // Partner Center Configuration
         'partner_center_base_url' => env('MICROSOFT_PARTNER_CENTER_BASE_URL'),
         'agreement_template_id' => env('MICROSOFT_AGREEMENT_TEMPLATE_ID'),
 
