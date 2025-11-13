@@ -7,7 +7,6 @@ use App\Models\Currency;
 use App\Models\Product;
 use Config;
 use Illuminate\Support\Collection;
-use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Concerns\RemembersChunkOffset;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
@@ -15,6 +14,7 @@ use Maatwebsite\Excel\Concerns\WithCustomCsvSettings;
 
 class SoftwareProductImport implements ToCollection, WithChunkReading, WithCustomCsvSettings
 {
+    use PriceCalc;
     use RemembersChunkOffset;
 
     private const COLUMN_PRODUCT_TITLE          = 'ProductTitle';
@@ -31,15 +31,9 @@ class SoftwareProductImport implements ToCollection, WithChunkReading, WithCusto
 
     private const COLUMN_UNIT_OF_MEASURE        = 'UnitOfMeasure';
 
-    private const COLUMN_TERM_DURATION          = 'TermDuration';
-
-    private const COLUMN_BILLING_PLAN           = 'BillingPlan';
-
     private const COLUMN_MARKET                 = 'Market';
 
     private const COLUMN_CURRENCY               = 'Currency';
-
-    private const COLUMN_UNIT_PRICE             = 'UnitPrice';
 
     private const COLUMN_PRICING_TIER_RANGE_MIN = 'PricingTierRangeMin';
 
@@ -54,8 +48,6 @@ class SoftwareProductImport implements ToCollection, WithChunkReading, WithCusto
     private const COLUMN_ERP                    = 'ERP';
 
     private const COLUMN_SEGMENT                = 'Segment';
-
-    private const COLUMN_UNDEFINED              = 'Undefined';
 
     private const REQUIRED_COLUMNS              = [
         self::COLUMN_PRODUCT_TITLE,
@@ -101,22 +93,20 @@ class SoftwareProductImport implements ToCollection, WithChunkReading, WithCusto
         self::COLUMN_SEGMENT,
     ];
 
-    private Collection $columnMapping;
-    public Collection  $productsWithoutCategory;
-    public Collection  $correctProducts;
-    public Collection  $allProducts;
-    private float      $priceMultiplier;
-    private ?Currency  $currency;
-    private int        $category;
+    public Collection $productsWithoutCategory;
+    public Collection $correctProducts;
+    public Collection $allProducts;
+    private ?Currency $currency;
+    private int       $category;
 
     public function __construct()
     {
+        $this->initializePriceCalc();
         $this->columnMapping           = Collection::make();
         $this->productsWithoutCategory = Collection::make();
         $this->correctProducts         = Collection::make();
         $this->allProducts             = Collection::make();
         $this->currency                = null;
-        $this->priceMultiplier         = floatval(Config::get('products.price_multiplier'));
         $this->category                = intval(Category::where('name', 'Suscripción y Perpetuo')->first()->id);
     }
 
@@ -130,8 +120,8 @@ class SoftwareProductImport implements ToCollection, WithChunkReading, WithCusto
          */
         foreach ($collection as $index => $row) {
             if ($chunkOffset == 1 && $index == 0) {
-                $this->prepareHeaders($row);
-                $this->validateHeaders();
+                $this->prepareHeaders($row, self::ALL_COLUMNS);
+                $this->validateHeaders(self::REQUIRED_COLUMNS);
 
                 continue;
             }
@@ -198,86 +188,6 @@ class SoftwareProductImport implements ToCollection, WithChunkReading, WithCusto
     public function chunkSize(): int
     {
         return 100;
-    }
-
-    private function prepareHeaders(Collection $headers): void
-    {
-        $headers->each(function(string $headerName) {
-            if (in_array($headerName, self::ALL_COLUMNS)) {
-                $this->columnMapping->push($headerName);
-            } else {
-                $this->columnMapping->push(self::COLUMN_UNDEFINED);
-            }
-        });
-    }
-
-    private function validateHeaders(): void
-    {
-        $errors = Collection::make();
-
-        foreach (self::REQUIRED_COLUMNS as $requiredColumn) {
-            if ($this->columnMapping->search($requiredColumn) === false) {
-                $errors->push("Falta la columna requerida: {$requiredColumn}");
-            }
-        }
-
-        if ($errors->isNotEmpty()) {
-            throw ValidationException::withMessages([
-                'file' => $errors,
-            ]);
-        }
-    }
-
-    private function getColumnValue(Collection $row, string $columnName): mixed
-    {
-        $columnIndex = $this->columnMapping->search($columnName);
-
-        if ($columnIndex === false) {
-            return null;
-        }
-
-        return $row->get($columnIndex);
-    }
-
-    private function calculateUnitPrice(Collection $row): string
-    {
-        $rowUnitPrice = floatval($this->getColumnValue($row, self::COLUMN_UNIT_PRICE));
-
-        $billingPlan  = $this->getColumnValue($row, self::COLUMN_BILLING_PLAN);
-        $termDuration = $this->getColumnValue($row, self::COLUMN_TERM_DURATION);
-        $divisor      = $this->getUnitPriceDivisor($termDuration, $billingPlan);
-
-        $unitPrice           = max($rowUnitPrice, 0) / $divisor;
-        $priceWithMultiplier = $unitPrice + (($unitPrice * $this->priceMultiplier) / 100);
-
-        return number_format($priceWithMultiplier, 2, '.', '');
-    }
-
-    private function getUnitPriceDivisor(?string $termDuration, string $billingPlan): int
-    {
-        $billingPlan  = strtolower($billingPlan);
-        $termDuration = strtolower($termDuration);
-
-        $paysPerYear = match ($billingPlan) {
-            'onetime' => 0,
-            'annual' => 1,
-            'triennial' => 0,
-            default => 12,
-        };
-
-        if ($termDuration && strlen($termDuration)) {
-            $termDurationNumber = intval($termDuration[1]);
-            $termDurationUnit   = $termDuration[2];
-
-            $termYears = match ($termDurationUnit) {
-                'y' => $termDurationNumber,
-                default => 0,
-            };
-        } else {
-            $termYears = 0;
-        }
-
-        return max(($termYears * $paysPerYear), 1);
     }
 
     public function getCsvSettings(): array
