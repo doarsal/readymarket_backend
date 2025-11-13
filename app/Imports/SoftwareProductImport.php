@@ -142,7 +142,6 @@ class SoftwareProductImport implements ToCollection, WithChunkReading, WithCusto
                 'BillingPlan'  => $this->getColumnValue($row, self::COLUMN_BILLING_PLAN),
             ], [
                 'ProductTitle'        => $this->getColumnValue($row, self::COLUMN_PRODUCT_TITLE),
-                'Id'                  => $this->getColumnValue($row, self::COLUMN_PRODUCT_ID),
                 'SkuTitle'            => $this->getColumnValue($row, self::COLUMN_SKU_TITLE),
                 'Publisher'           => $this->getColumnValue($row, self::COLUMN_PUBLISHER),
                 'SkuDescription'      => $this->getColumnValue($row, self::COLUMN_SKU_DESCRIPTION),

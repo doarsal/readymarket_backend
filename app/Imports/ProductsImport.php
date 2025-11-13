@@ -157,7 +157,6 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
                 'BillingPlan'  => $this->getColumnValue($row, self::COLUMN_BILLING_PLAN),
             ], [
                 'ProductTitle'        => $this->getColumnValue($row, self::COLUMN_PRODUCT_TITLE),
-                'Id'                  => $this->getColumnValue($row, self::COLUMN_PRODUCT_ID),
                 'SkuTitle'            => $skuTitle,
                 'Publisher'           => $this->getColumnValue($row, self::COLUMN_PUBLISHER),
                 'SkuDescription'      => $this->getColumnValue($row, self::COLUMN_SKU_DESCRIPTION),
