@@ -9,12 +9,12 @@ use Exception;
 
 class SubscriptionAutoRenewService
 {
-    private $tokenEndpoint;
+    private MicrosoftAuthService $authService;
     private $partnerCenterApiUrl;
 
-    public function __construct()
+    public function __construct(MicrosoftAuthService $authService)
     {
-        $this->tokenEndpoint = config('services.microsoft.credentials_url');
+        $this->authService = $authService;
         $this->partnerCenterApiUrl = config('services.microsoft.partner_center_base_url');
     }
 
@@ -139,25 +139,7 @@ class SubscriptionAutoRenewService
      */
     private function getMicrosoftToken(): string
     {
-        try {
-            $response = Http::timeout(config('services.microsoft.token_timeout', 60))
-                ->get($this->tokenEndpoint);
-
-            if (!$response->successful()) {
-                throw new Exception('Failed to get Microsoft token: HTTP ' . $response->status());
-            }
-
-            $data = $response->json();
-
-            if (!isset($data['item']['token'])) {
-                throw new Exception('Invalid token response from Microsoft');
-            }
-
-            return $data['item']['token'];
-
-        } catch (Exception $e) {
-            throw new Exception('Failed to authenticate with Microsoft Partner Center: ' . $e->getMessage());
-        }
+        return $this->authService->getAccessToken();
     }
 
     /**

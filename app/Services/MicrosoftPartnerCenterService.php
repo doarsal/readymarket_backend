@@ -8,14 +8,11 @@ use Illuminate\Support\Facades\Log;
 
 class MicrosoftPartnerCenterService
 {
-    private ?string $token = null;
+    private MicrosoftAuthService $authService;
 
-    /**
-     * Obtener URL de credenciales desde configuración
-     */
-    private function getCredentialsUrl(): string
+    public function __construct(MicrosoftAuthService $authService)
     {
-        return config('services.microsoft.credentials_url', env('MICROSOFT_CREDENTIALS_URL'));
+        $this->authService = $authService;
     }
 
     /**
@@ -39,33 +36,7 @@ class MicrosoftPartnerCenterService
      */
     public function getAuthToken(): string
     {
-        if ($this->token) {
-            return $this->token;
-        }
-
-        try {
-            $response = Http::timeout(config('services.microsoft.token_timeout', env('MICROSOFT_API_TOKEN_TIMEOUT', 60)))
-                           ->get($this->getCredentialsUrl());
-
-            if (!$response->successful()) {
-                throw new Exception('Failed to get credentials: ' . $response->body());
-            }
-
-            $data = $response->json();
-
-            if (empty($data['item']['token'])) {
-                throw new Exception('Invalid token in credentials response');
-            }
-
-            $this->token = $data['item']['token'];
-            return $this->token;
-
-        } catch (Exception $e) {
-            Log::error('Microsoft Partner Center: Failed to get auth token', [
-                'error' => $e->getMessage()
-            ]);
-            throw new Exception('Error al conectar con servicio de credenciales: ' . $e->getMessage());
-        }
+        return $this->authService->getAccessToken();
     }
 
     /**

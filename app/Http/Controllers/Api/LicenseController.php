@@ -494,13 +494,18 @@ class LicenseController extends Controller
                 $validated['auto_renew_enabled']
             );
 
+            // Reload subscription with fresh data to get updated renewal_info
+            $subscription->refresh();
+            $subscription->load([
+                'product:idproduct,ProductTitle,SkuTitle,Publisher,BillingPlan,prod_icon,TermDuration',
+                'order:id,order_number,created_at,total_amount',
+                'microsoftAccount:id,domain_concatenated,organization'
+            ]);
+
             return response()->json([
                 'success' => true,
                 'message' => $result['message'],
-                'data' => [
-                    'subscription_id' => $subscription->id,
-                    'auto_renew_enabled' => $validated['auto_renew_enabled']
-                ]
+                'data' => new \App\Http\Resources\LicenseResource($subscription)
             ]);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {

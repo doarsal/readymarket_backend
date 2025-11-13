@@ -255,28 +255,27 @@ class LicenseResource extends JsonResource
      */
     private function getRenewalInfo(): ?array
     {
-        if (!$this->isRenewable()) {
+        // Use the computed attributes from Subscription model
+        // These are automatically calculated based on commitment_end_date
+
+        // For perpetual licenses, return null
+        if ($this->isPerpetual()) {
             return null;
         }
 
-        $termDuration = $this->term_duration;
-        $createdAt = $this->created_at;
-
-        if (!$termDuration || !$createdAt) {
+        // If no renewal date available, return null
+        if (!$this->next_renewal_date) {
             return null;
         }
 
         try {
-            // Calculate next renewal date based on term duration
-            $renewalDate = $this->calculateRenewalDate($createdAt, $termDuration);
-            $daysUntilRenewal = now()->diffInDays($renewalDate, false);
-
             return [
-                'next_renewal_date' => $renewalDate->toIso8601String(),
-                'next_renewal_date_formatted' => $renewalDate->format('M d, Y'),
-                'days_until_renewal' => (int) $daysUntilRenewal,
-                'auto_renew_enabled' => true, // From auto-renewal implementation
-                'renewal_term' => $this->getReadableTermDuration(),
+                'next_renewal_date' => $this->next_renewal_date,
+                'next_renewal_date_formatted' => $this->commitment_end_date?->format('M d, Y H:i'),
+                'days_until_renewal' => $this->days_until_renewal,
+                'auto_renew_enabled' => $this->auto_renew_enabled ?? false,
+                'renewal_term' => $this->renewal_frequency, // "Mensual", "Anual", etc
+                'expiration_info' => $this->expiration_info, // Human-readable message
             ];
 
         } catch (\Exception $e) {

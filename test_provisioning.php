@@ -21,7 +21,7 @@ $kernel->bootstrap();
 
 // Configuración
 $userId = 1;
-$cartToken = '2bzulljBV2bYMXb8RUTMLWqniRuiPZU6';
+$cartToken = 'guVSSDoG7Ftt3rkd337GP4Ttg4sdQ22R'; // Cart ID 613
 
 echo "\n=== SCRIPT DE PRUEBA DE APROVISIONAMIENTO ===\n\n";
 
@@ -77,13 +77,13 @@ try {
         echo "⚠ Advertencia: Usuario no tiene información de facturación\n";
     }
 
-    // Obtener cuenta Microsoft con ID 70
+    // Obtener cuenta Microsoft con ID 42 (recién creada)
     $microsoftAccount = DB::table('microsoft_accounts')
-        ->where('id', 70)
+        ->where('id', 42)
         ->first();
 
     if (!$microsoftAccount) {
-        die("Error: Cuenta Microsoft con ID 70 no encontrada\n");
+        die("Error: Cuenta Microsoft con ID 42 no encontrada\n");
     }
     echo "✓ Cuenta Microsoft encontrada: {$microsoftAccount->domain} (ID: {$microsoftAccount->id})\n";
 
