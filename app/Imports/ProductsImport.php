@@ -2,6 +2,7 @@
 
 namespace App\Imports;
 
+use App\Models\Currency;
 use App\Models\Product;
 use Config;
 use Illuminate\Support\Collection;
@@ -9,8 +10,9 @@ use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Concerns\RemembersChunkOffset;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
+use Maatwebsite\Excel\Concerns\WithCustomCsvSettings;
 
-class ProductsImport implements ToCollection, WithChunkReading
+class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSettings
 {
     use RemembersChunkOffset;
 
@@ -109,19 +111,25 @@ class ProductsImport implements ToCollection, WithChunkReading
     private Collection $columnMapping;
     public Collection  $productsWithoutCategory;
     public Collection  $correctProducts;
+    public Collection  $allProducts;
     private float      $priceMultiplier;
+    private ?Currency  $currency;
 
     public function __construct()
     {
         $this->columnMapping           = Collection::make();
         $this->productsWithoutCategory = Collection::make();
         $this->correctProducts         = Collection::make();
+        $this->allProducts             = Collection::make();
+        $this->currency                = null;
         $this->priceMultiplier         = floatval(Config::get('products.price_multiplier'));
     }
 
     public function collection(Collection $collection): void
     {
+        $storeId     = Config::get('app.store_id');
         $chunkOffset = $this->getChunkOffset();
+
         /**
          * @var Collection $row
          */
@@ -135,6 +143,11 @@ class ProductsImport implements ToCollection, WithChunkReading
 
             if ($this->getColumnValue($row, self::COLUMN_SEGMENT) !== 'Commercial') {
                 continue;
+            }
+
+            if (!$this->currency) {
+                $currencyColumnValue = $this->getColumnValue($row, self::COLUMN_CURRENCY) ?? 'USD';
+                $this->currency      = Currency::where('code', $currencyColumnValue)->first();
             }
 
             $product = Product::updateOrCreate([
@@ -159,9 +172,13 @@ class ProductsImport implements ToCollection, WithChunkReading
                 'Tags'                => $this->getColumnValue($row, self::COLUMN_TAGS),
                 'ERPPrice'            => $this->getColumnValue($row, self::COLUMN_ERP_PRICE),
                 'Segment'             => $this->getColumnValue($row, self::COLUMN_SEGMENT),
+                'store_id'            => $storeId,
+                'currency_id'         => $this->currency?->id,
             ]);
 
-            if ($product->wasRecentlyCreated || !$product->category_id) {
+            $this->allProducts->push($product->idproduct);
+
+            if ($product->wasRecentlyCreated) {
                 $this->productsWithoutCategory->push($product);
                 continue;
             }
@@ -171,6 +188,7 @@ class ProductsImport implements ToCollection, WithChunkReading
                     'product' => [
                         'id'           => $product->getKey(),
                         'ProductId'    => $product->ProductId,
+                        'SkuTitle'     => $product->SkuTitle,
                         'SkuId'        => $product->SkuId,
                         'TermDuration' => $product->TermDuration,
                         'BillingPlan'  => $product->BillingPlan,
@@ -227,9 +245,47 @@ class ProductsImport implements ToCollection, WithChunkReading
 
     private function calculateUnitPrice(Collection $row): string
     {
-        $unitPrice           = floatval($this->getColumnValue($row, self::COLUMN_UNIT_PRICE));
+        $rowUnitPrice = floatval($this->getColumnValue($row, self::COLUMN_UNIT_PRICE));
+
+        $billingPlan  = $this->getColumnValue($row, self::COLUMN_BILLING_PLAN);
+        $termDuration = $this->getColumnValue($row, self::COLUMN_TERM_DURATION);
+        $divisor      = $this->getUnitPriceDivisor($termDuration, $billingPlan);
+
+        $unitPrice           = max($rowUnitPrice, 0) / $divisor;
         $priceWithMultiplier = $unitPrice + (($unitPrice * $this->priceMultiplier) / 100);
 
         return number_format($priceWithMultiplier, 2, '.', '');
+    }
+
+    private function getUnitPriceDivisor(string $termDuration, string $billingPlan): int
+    {
+        $billingPlan  = strtolower($billingPlan);
+        $termDuration = strtolower($termDuration);
+
+        $paysPerYear = match ($billingPlan) {
+            'annual' => 1,
+            'triennial' => 0,
+            default => 12,
+        };
+
+        $termDurationNumber = intval($termDuration[1]);
+        $termDurationUnit   = $termDuration[2];
+
+        $termYears = match ($termDurationUnit) {
+            'y' => $termDurationNumber,
+            default => 0,
+        };
+
+        return max(($termYears * $paysPerYear), 1);
+    }
+
+    public function getCsvSettings(): array
+    {
+        return [
+            'input_encoding'   => 'UTF-8',
+            'delimiter'        => ',',
+            'enclosure'        => '"',
+            'escape_character' => '\\',
+        ];
     }
 }

@@ -30,7 +30,7 @@ class InvokeRequest extends FormRequest
     public function rules(): array
     {
         return [
-            RequestKeys::FILE => 'required|file|mimes:xls,xlsx',
+            RequestKeys::FILE => 'required|file|mimes:csv',
         ];
     }
 
@@ -38,8 +38,8 @@ class InvokeRequest extends FormRequest
     {
         return [
             RequestKeys::FILE . '.required' => 'El archivo es requerido.',
-            RequestKeys::FILE . '.mimes'    => 'El archivo debe ser XLS o XLSX.',
-            RequestKeys::FILE . '.file'     => 'El archivo debe ser XLS o XLSX.',
+            RequestKeys::FILE . '.mimes'    => 'El archivo debe ser CSV.',
+            RequestKeys::FILE . '.file'     => 'El archivo debe ser CSV.',
         ];
     }
 }

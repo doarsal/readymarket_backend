@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Config;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -150,7 +151,17 @@ class Cart extends Model
      */
     public function getSubtotalAttribute(): float
     {
-        return round($this->subtotal_items + $this->subtotal_check_out_items, 2);
+        /* @var User $user */
+        $user      = $this->user;
+        $hasOrders = $user?->orders()->paid()->exists();
+
+        $subtotal = $this->subtotal_items + $this->subtotal_check_out_items;
+        if (!$hasOrders && !!Config::get('products.first_buy.active')) {
+            $firstBuyDiscount = Config::get('products.first_buy.discount');
+            $subtotal         = $subtotal - ($subtotal * $firstBuyDiscount / 100);
+        }
+
+        return round($subtotal, 2);
     }
 
     /**
@@ -159,7 +170,7 @@ class Cart extends Model
     public function getSubtotalCheckOutItemsAttribute(): float
     {
         return round($this->cartCheckOutItems()->with('checkOutItem')->get()->sum(function(CartCheckOutItem $item) {
-            if(!$item->status) {
+            if (!$item->status) {
                 return 0;
             }
 
@@ -173,6 +184,7 @@ class Cart extends Model
             $query->where('is_active', true);
         })->with('checkOutItem')->get()->map(function(CartCheckOutItem $cartCheckOutItem) {
             $item = $cartCheckOutItem->checkOutItem;
+
             return [
                 'id'                   => $cartCheckOutItem->getKey(),
                 'check_out_item_id'    => $item->getKey(),
