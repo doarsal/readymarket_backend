@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Console\Commands\ScrapMonexCommand;
 use Cache;
 use Carbon\Carbon;
 use Config;
@@ -20,11 +21,15 @@ class ExchangeRate
 
         $cacheExists = Cache::has($cacheLastUpdate) && Cache::get($cacheLastUpdate) === $now;
         if (Carbon::now($timezone)->hour >= $minHourOfDay && !$cacheExists) {
-            // TODO: Agregar consulta a la API para obtener el exchange rate
-            $fallBackExchangeRate = Config::get('exchange-rate.fallback_rate');
+            $scrapMonexCommand        = new ScrapMonexCommand();
+            $monexUsdValue            = $scrapMonexCommand->handle();
+            $monexValueWithPercentage = $monexUsdValue + (($monexUsdValue * Config::get('exchange-rate.multiplier')) / 100);
+            $fallBackExchangeRate     = Config::get('exchange-rate.fallback_rate');
 
-            Cache::rememberForever($cacheKey, function() use ($fallBackExchangeRate) {
-                return $fallBackExchangeRate;
+            $usdValue = $monexValueWithPercentage > 0 ? $monexValueWithPercentage : $fallBackExchangeRate;
+
+            Cache::rememberForever($cacheKey, function() use ($usdValue) {
+                return $usdValue;
             });
             Cache::rememberForever($cacheLastUpdate, function() use ($now) {
                 return $now;
