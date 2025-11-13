@@ -12,13 +12,10 @@ use Maatwebsite\Excel\Concerns\RemembersChunkOffset;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Maatwebsite\Excel\Concerns\WithCustomCsvSettings;
-use Str;
 
-class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSettings
+class SoftwareProductImport implements ToCollection, WithChunkReading, WithCustomCsvSettings
 {
     use RemembersChunkOffset;
-
-    private const COLUMN_CHANGE_INDICATOR       = 'ChangeIndicator';
 
     private const COLUMN_PRODUCT_TITLE          = 'ProductTitle';
 
@@ -54,16 +51,13 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
 
     private const COLUMN_TAGS                   = 'Tags';
 
-    private const COLUMN_ERP_PRICE              = 'ERP Price';
+    private const COLUMN_ERP                    = 'ERP';
 
     private const COLUMN_SEGMENT                = 'Segment';
-
-    private const COLUMN_PREVIOUS_VALUES        = 'PreviousValues';
 
     private const COLUMN_UNDEFINED              = 'Undefined';
 
     private const REQUIRED_COLUMNS              = [
-        self::COLUMN_CHANGE_INDICATOR,
         self::COLUMN_PRODUCT_TITLE,
         self::COLUMN_PRODUCT_ID,
         self::COLUMN_SKU_ID,
@@ -81,13 +75,11 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
         self::COLUMN_EFFECTIVE_START_DATE,
         self::COLUMN_EFFECTIVE_END_DATE,
         self::COLUMN_TAGS,
-        self::COLUMN_ERP_PRICE,
+        self::COLUMN_ERP,
         self::COLUMN_SEGMENT,
-        self::COLUMN_PREVIOUS_VALUES,
     ];
 
     private const ALL_COLUMNS                   = [
-        self::COLUMN_CHANGE_INDICATOR,
         self::COLUMN_PRODUCT_TITLE,
         self::COLUMN_PRODUCT_ID,
         self::COLUMN_SKU_ID,
@@ -105,9 +97,8 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
         self::COLUMN_EFFECTIVE_START_DATE,
         self::COLUMN_EFFECTIVE_END_DATE,
         self::COLUMN_TAGS,
-        self::COLUMN_ERP_PRICE,
+        self::COLUMN_ERP,
         self::COLUMN_SEGMENT,
-        self::COLUMN_PREVIOUS_VALUES,
     ];
 
     private Collection $columnMapping;
@@ -116,8 +107,7 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
     public Collection  $allProducts;
     private float      $priceMultiplier;
     private ?Currency  $currency;
-    private int        $dynamic365Category;
-    private int        $microsoft365Category;
+    private int        $category;
 
     public function __construct()
     {
@@ -127,8 +117,7 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
         $this->allProducts             = Collection::make();
         $this->currency                = null;
         $this->priceMultiplier         = floatval(Config::get('products.price_multiplier'));
-        $this->dynamic365Category      = intval(Category::where('name', 'Dynamics 365')->first()->id);
-        $this->microsoft365Category    = intval(Category::where('name', 'Microsoft 365')->first()->id);
+        $this->category                = intval(Category::where('name', 'Suscripción y Perpetuo')->first()->id);
     }
 
     public function collection(Collection $collection): void
@@ -156,10 +145,6 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
                 $this->currency      = Currency::where('code', $currencyColumnValue)->first();
             }
 
-            $skuTitle   = $this->getColumnValue($row, self::COLUMN_SKU_TITLE);
-            $categoryId = Str::contains($skuTitle,
-                'Dynamics') ? $this->dynamic365Category : $this->microsoft365Category;
-
             $product = Product::updateOrCreate([
                 'ProductId'    => $this->getColumnValue($row, self::COLUMN_PRODUCT_ID),
                 'SkuId'        => $this->getColumnValue($row, self::COLUMN_SKU_ID),
@@ -168,7 +153,7 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
             ], [
                 'ProductTitle'        => $this->getColumnValue($row, self::COLUMN_PRODUCT_TITLE),
                 'Id'                  => $this->getColumnValue($row, self::COLUMN_PRODUCT_ID),
-                'SkuTitle'            => $skuTitle,
+                'SkuTitle'            => $this->getColumnValue($row, self::COLUMN_SKU_TITLE),
                 'Publisher'           => $this->getColumnValue($row, self::COLUMN_PUBLISHER),
                 'SkuDescription'      => $this->getColumnValue($row, self::COLUMN_SKU_DESCRIPTION),
                 'UnitOfMeasure'       => $this->getColumnValue($row, self::COLUMN_UNIT_OF_MEASURE),
@@ -180,11 +165,11 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
                 'EffectiveStartDate'  => $this->getColumnValue($row, self::COLUMN_EFFECTIVE_START_DATE),
                 'EffectiveEndDate'    => $this->getColumnValue($row, self::COLUMN_EFFECTIVE_END_DATE),
                 'Tags'                => $this->getColumnValue($row, self::COLUMN_TAGS),
-                'ERPPrice'            => $this->getColumnValue($row, self::COLUMN_ERP_PRICE),
+                'ERPPrice'            => $this->getColumnValue($row, self::COLUMN_ERP),
                 'Segment'             => $this->getColumnValue($row, self::COLUMN_SEGMENT),
                 'store_id'            => $storeId,
                 'currency_id'         => $this->currency?->id,
-                'category_id'         => $categoryId,
+                'category_id'         => $this->category,
             ]);
 
             $this->allProducts->push($product->idproduct);
@@ -268,24 +253,29 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
         return number_format($priceWithMultiplier, 2, '.', '');
     }
 
-    private function getUnitPriceDivisor(string $termDuration, string $billingPlan): int
+    private function getUnitPriceDivisor(?string $termDuration, string $billingPlan): int
     {
         $billingPlan  = strtolower($billingPlan);
         $termDuration = strtolower($termDuration);
 
         $paysPerYear = match ($billingPlan) {
+            'onetime' => 0,
             'annual' => 1,
             'triennial' => 0,
             default => 12,
         };
 
-        $termDurationNumber = intval($termDuration[1]);
-        $termDurationUnit   = $termDuration[2];
+        if ($termDuration && strlen($termDuration)) {
+            $termDurationNumber = intval($termDuration[1]);
+            $termDurationUnit   = $termDuration[2];
 
-        $termYears = match ($termDurationUnit) {
-            'y' => $termDurationNumber,
-            default => 0,
-        };
+            $termYears = match ($termDurationUnit) {
+                'y' => $termDurationNumber,
+                default => 0,
+            };
+        } else {
+            $termYears = 0;
+        }
 
         return max(($termYears * $paysPerYear), 1);
     }
