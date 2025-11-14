@@ -16,6 +16,15 @@ class ScrapMonexCommand extends Command
     {
         $usdValues = Collection::make();
 
+        $tempDir = storage_path('temp');
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        putenv("TMPDIR={$tempDir}");
+        putenv("TEMP={$tempDir}");
+        putenv("TMP={$tempDir}");
+
         $browser = new HttpBrowser(HttpClient::create());
         $crawler = $browser->request('GET', 'https://www.monex.com.mx/portal/inicio');
 
