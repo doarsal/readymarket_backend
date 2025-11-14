@@ -57,8 +57,6 @@ class MassiveUpdateController extends Controller
                 'message' => 'Fallo al procesar el Excel',
                 'errors'  => $e->errors(),
             ]);
-        }catch (\Throwable $e) {
-            dd($e);
         }
     }
 
