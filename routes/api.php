@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BillingInformationController;
 use App\Http\Controllers\Api\Cart\CheckOut\Settings\CartCheckOutSettingsController;
 use App\Http\Controllers\Api\CartController;
+use App\Http\Controllers\Api\CartVerificationController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CfdiUsageController;
 use App\Http\Controllers\Api\CheckOutItemsController;
@@ -162,6 +163,9 @@ Route::prefix('v1')->group(function() {
             Route::post('/items/{item}/save-for-later', [CartController::class, 'saveForLater']);
             Route::get('/saved-items', [CartController::class, 'savedItems']);
             Route::post('/items/{item}/move-to-cart', [CartController::class, 'moveToCart']);
+
+            // Verificación de productos del carrito
+            Route::post('/verify-products', [CartVerificationController::class, 'verifyCartProducts']);
         });
     });
 
