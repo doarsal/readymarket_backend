@@ -11,14 +11,11 @@ use Maatwebsite\Excel\Concerns\RemembersChunkOffset;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Maatwebsite\Excel\Concerns\WithCustomCsvSettings;
-use Str;
 
-class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSettings
+class SoftwareProductImport implements ToCollection, WithChunkReading, WithCustomCsvSettings
 {
     use PriceCalc;
     use RemembersChunkOffset;
-
-    private const COLUMN_CHANGE_INDICATOR       = 'ChangeIndicator';
 
     private const COLUMN_PRODUCT_TITLE          = 'ProductTitle';
 
@@ -48,14 +45,11 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
 
     private const COLUMN_TAGS                   = 'Tags';
 
-    private const COLUMN_ERP_PRICE              = 'ERP Price';
+    private const COLUMN_ERP                    = 'ERP';
 
     private const COLUMN_SEGMENT                = 'Segment';
 
-    private const COLUMN_PREVIOUS_VALUES        = 'PreviousValues';
-
     private const REQUIRED_COLUMNS              = [
-        self::COLUMN_CHANGE_INDICATOR,
         self::COLUMN_PRODUCT_TITLE,
         self::COLUMN_PRODUCT_ID,
         self::COLUMN_SKU_ID,
@@ -73,13 +67,11 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
         self::COLUMN_EFFECTIVE_START_DATE,
         self::COLUMN_EFFECTIVE_END_DATE,
         self::COLUMN_TAGS,
-        self::COLUMN_ERP_PRICE,
+        self::COLUMN_ERP,
         self::COLUMN_SEGMENT,
-        self::COLUMN_PREVIOUS_VALUES,
     ];
 
     private const ALL_COLUMNS                   = [
-        self::COLUMN_CHANGE_INDICATOR,
         self::COLUMN_PRODUCT_TITLE,
         self::COLUMN_PRODUCT_ID,
         self::COLUMN_SKU_ID,
@@ -97,17 +89,15 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
         self::COLUMN_EFFECTIVE_START_DATE,
         self::COLUMN_EFFECTIVE_END_DATE,
         self::COLUMN_TAGS,
-        self::COLUMN_ERP_PRICE,
+        self::COLUMN_ERP,
         self::COLUMN_SEGMENT,
-        self::COLUMN_PREVIOUS_VALUES,
     ];
 
-    public Collection  $productsWithoutCategory;
-    public Collection  $correctProducts;
-    public Collection  $allProducts;
-    private ?Currency  $currency;
-    private int        $dynamic365Category;
-    private int        $microsoft365Category;
+    public Collection $productsWithoutCategory;
+    public Collection $correctProducts;
+    public Collection $allProducts;
+    private ?Currency $currency;
+    private int       $category;
 
     public function __construct()
     {
@@ -117,8 +107,7 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
         $this->correctProducts         = Collection::make();
         $this->allProducts             = Collection::make();
         $this->currency                = null;
-        $this->dynamic365Category      = intval(Category::where('name', 'Dynamics 365')->first()->id);
-        $this->microsoft365Category    = intval(Category::where('name', 'Microsoft 365')->first()->id);
+        $this->category                = intval(Category::where('name', 'Suscripción y Perpetuo')->first()->id);
     }
 
     public function collection(Collection $collection): void
@@ -146,10 +135,6 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
                 $this->currency      = Currency::where('code', $currencyColumnValue)->first();
             }
 
-            $skuTitle   = $this->getColumnValue($row, self::COLUMN_SKU_TITLE);
-            $categoryId = Str::contains($skuTitle,
-                'Dynamics') ? $this->dynamic365Category : $this->microsoft365Category;
-
             $product = Product::updateOrCreate([
                 'ProductId'    => $this->getColumnValue($row, self::COLUMN_PRODUCT_ID),
                 'SkuId'        => $this->getColumnValue($row, self::COLUMN_SKU_ID),
@@ -157,7 +142,7 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
                 'BillingPlan'  => $this->getColumnValue($row, self::COLUMN_BILLING_PLAN),
             ], [
                 'ProductTitle'        => $this->getColumnValue($row, self::COLUMN_PRODUCT_TITLE),
-                'SkuTitle'            => $skuTitle,
+                'SkuTitle'            => $this->getColumnValue($row, self::COLUMN_SKU_TITLE),
                 'Publisher'           => $this->getColumnValue($row, self::COLUMN_PUBLISHER),
                 'SkuDescription'      => $this->getColumnValue($row, self::COLUMN_SKU_DESCRIPTION),
                 'UnitOfMeasure'       => $this->getColumnValue($row, self::COLUMN_UNIT_OF_MEASURE),
@@ -169,11 +154,11 @@ class ProductsImport implements ToCollection, WithChunkReading, WithCustomCsvSet
                 'EffectiveStartDate'  => $this->getColumnValue($row, self::COLUMN_EFFECTIVE_START_DATE),
                 'EffectiveEndDate'    => $this->getColumnValue($row, self::COLUMN_EFFECTIVE_END_DATE),
                 'Tags'                => $this->getColumnValue($row, self::COLUMN_TAGS),
-                'ERPPrice'            => $this->getColumnValue($row, self::COLUMN_ERP_PRICE),
+                'ERPPrice'            => $this->getColumnValue($row, self::COLUMN_ERP),
                 'Segment'             => $this->getColumnValue($row, self::COLUMN_SEGMENT),
                 'store_id'            => $storeId,
                 'currency_id'         => $this->currency?->id,
-                'category_id'         => $categoryId,
+                'category_id'         => $this->category,
             ]);
 
             $this->allProducts->push($product->idproduct);

@@ -30,16 +30,20 @@ class InvokeRequest extends FormRequest
     public function rules(): array
     {
         return [
-            RequestKeys::FILE => 'required|file|mimes:csv',
+            RequestKeys::FILE          => 'required|file|mimes:csv',
+            RequestKeys::SOFTWARE_FILE => 'required|file|mimes:csv',
         ];
     }
 
     public function messages(): array
     {
         return [
-            RequestKeys::FILE . '.required' => 'El archivo es requerido.',
-            RequestKeys::FILE . '.mimes'    => 'El archivo debe ser CSV.',
-            RequestKeys::FILE . '.file'     => 'El archivo debe ser CSV.',
+            RequestKeys::FILE . '.required'          => 'El archivo es requerido.',
+            RequestKeys::FILE . '.mimes'             => 'El archivo debe ser CSV.',
+            RequestKeys::FILE . '.file'              => 'El archivo debe ser CSV.',
+            RequestKeys::SOFTWARE_FILE . '.required' => 'El archivo de software es requerido.',
+            RequestKeys::SOFTWARE_FILE . '.mimes'    => 'El archivo de software debe ser CSV.',
+            RequestKeys::SOFTWARE_FILE . '.file'     => 'El archivo de software debe ser CSV.',
         ];
     }
 }
