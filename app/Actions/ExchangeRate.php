@@ -19,8 +19,10 @@ class ExchangeRate
 
         $now = Carbon::now($timezone)->format('Y-m-d');
 
-        $cacheExists = Cache::has($cacheLastUpdate) && Cache::get($cacheLastUpdate) === $now;
-        if (Carbon::now($timezone)->hour >= $minHourOfDay && !$cacheExists) {
+        $cacheExists    = Cache::has($cacheLastUpdate) && Cache::get($cacheLastUpdate) === $now;
+        $isMinHourOfDay = Carbon::now($timezone)->hour >= $minHourOfDay;
+
+        if (($isMinHourOfDay && !$cacheExists) || !Cache::has($cacheKey)) {
             $scrapMonexCommand        = new ScrapMonexCommand();
             $monexUsdValue            = $scrapMonexCommand->handle();
             $monexValueWithPercentage = $monexUsdValue + (($monexUsdValue * Config::get('exchange-rate.multiplier')) / 100);
@@ -31,9 +33,12 @@ class ExchangeRate
             Cache::rememberForever($cacheKey, function() use ($usdValue) {
                 return $usdValue;
             });
-            Cache::rememberForever($cacheLastUpdate, function() use ($now) {
-                return $now;
-            });
+
+            if ($isMinHourOfDay) {
+                Cache::rememberForever($cacheLastUpdate, function() use ($now) {
+                    return $now;
+                });
+            }
         }
 
         return number_format(Cache::get($cacheKey), 2);
