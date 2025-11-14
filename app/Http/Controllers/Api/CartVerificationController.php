@@ -125,13 +125,13 @@ class CartVerificationController extends Controller
                 // Producto no disponible - eliminarlo del carrito
                 $unavailableCount++;
                 $removedProductIds[] = $product->idproduct;
-                
+
                 // Eliminar todos los items del carrito que tengan este producto
                 DB::table('cart_items')
                     ->where('cart_id', $cart->id)
                     ->where('product_id', $product->idproduct)
                     ->delete();
-                
+
                 Log::info("Producto no disponible eliminado del carrito", [
                     'cart_id' => $cart->id,
                     'product_id' => $product->idproduct,
