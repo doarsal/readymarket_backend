@@ -5,8 +5,8 @@ namespace App\Services\Payment;
 use App;
 use App\Actions\ExchangeRate;
 use App\Models\PaymentSession;
+use Config;
 use Illuminate\Contracts\Container\BindingResolutionException;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -43,17 +43,17 @@ class MitecPaymentService
         try {
             // LOG: Ver todos los datos que llegan al servicio
             Log::info('🔍 MITEC PaymentService - Datos recibidos del controlador', [
-                'paymentData_keys' => array_keys($paymentData),
-                'has_card_name' => isset($paymentData['card_name']),
-                'card_name_value' => $paymentData['card_name'] ?? 'NO_EXISTE',
-                'has_card_number' => isset($paymentData['card_number']),
-                'has_cvv' => isset($paymentData['cvv']),
-                'has_exp_month' => isset($paymentData['exp_month']),
-                'has_exp_year' => isset($paymentData['exp_year']),
+                'paymentData_keys'  => array_keys($paymentData),
+                'has_card_name'     => isset($paymentData['card_name']),
+                'card_name_value'   => $paymentData['card_name'] ?? 'NO_EXISTE',
+                'has_card_number'   => isset($paymentData['card_number']),
+                'has_cvv'           => isset($paymentData['cvv']),
+                'has_exp_month'     => isset($paymentData['exp_month']),
+                'has_exp_year'      => isset($paymentData['exp_year']),
                 'has_billing_email' => isset($paymentData['billing_email']),
                 'has_billing_phone' => isset($paymentData['billing_phone']),
-                'user_id' => $userId,
-                'cart_id' => $cartId,
+                'user_id'           => $userId,
+                'cart_id'           => $cartId,
             ]);
 
             // Si no viene amount en los datos, calcularlo desde el carrito
@@ -63,11 +63,11 @@ class MitecPaymentService
                     $paymentData['amount'] = number_format($cart->total_amount, 2, '.', '');
                     Log::info('MITEC: Amount calculado desde carrito', [
                         'cart_id' => $cartId,
-                        'amount' => $paymentData['amount']
+                        'amount'  => $paymentData['amount'],
                     ]);
                 } else {
                     Log::error('MITEC: Cart no encontrado para calcular amount', [
-                        'cart_id' => $cartId
+                        'cart_id' => $cartId,
                     ]);
                     throw new \Exception('No se pudo determinar el monto de la transacción');
                 }
@@ -77,13 +77,14 @@ class MitecPaymentService
             $validatedData = $this->validatePaymentData($paymentData);
 
             // Verificar si está en modo fake
-            if (env('MICROSOFT_FAKE_MODE', false)) {
-                Log::info('MITEC: Modo FAKE activado - procesando como transacción normal pero con respuesta simulada', [
-                    'user_id' => $userId,
-                    'cart_id' => $cartId,
-                    'amount' => $validatedData['amount'],
-                    'card_last_four' => substr($validatedData['card_number'], -4)
-                ]);
+            if (Config::get('services.microsoft.fake_mode')) {
+                Log::info('MITEC: Modo FAKE activado - procesando como transacción normal pero con respuesta simulada',
+                    [
+                        'user_id'        => $userId,
+                        'cart_id'        => $cartId,
+                        'amount'         => $validatedData['amount'],
+                        'card_last_four' => substr($validatedData['card_number'], -4),
+                    ]);
 
                 // Continuar con el proceso normal para generar el XML y todo
                 // Solo cambiaremos el comportamiento al final
@@ -94,10 +95,10 @@ class MitecPaymentService
 
             // Registrar inicio de transacción real
             Log::info('Iniciando transacción MITEC REAL', [
-                'user_id' => $userId,
-                'cart_id' => $cartId,
-                'amount' => $validatedData['amount'],
-                'card_last_four' => substr($validatedData['card_number'], -4)
+                'user_id'        => $userId,
+                'cart_id'        => $cartId,
+                'amount'         => $validatedData['amount'],
+                'card_last_four' => substr($validatedData['card_number'], -4),
             ]);
 
             // Preparar datos para el XML
@@ -119,7 +120,8 @@ class MitecPaymentService
             $billingData = [
                 'phone' => $validatedData['billing_phone'] ?? null,
                 'email' => $validatedData['billing_email'] ?? null,
-                'ip' => $validatedData['browser_ip'] ?? request()->ip() ?? '187.184.8.88' // IP del cliente o fallback
+                'ip'    => $validatedData['browser_ip'] ?? request()->ip() ?? '187.184.8.88',
+                // IP del cliente o fallback
             ];
 
             // Construir XML de transacción
@@ -196,28 +198,35 @@ class MitecPaymentService
      */
     protected function validatePaymentData(array $data): array
     {
-        $minCartExchangeRateAction = App::make(ExchangeRate::class);
-        $exchangeData              = Collection::make($minCartExchangeRateAction->execute());
-        $exchangeMinRate           = $exchangeData->get('exchange');
-        $usdMinRate                = $exchangeData->get('usd');
-
         $validator = Validator::make($data, [
-            'card_number' => ['required', 'string', 'min:13', 'max:19', 'regex:/^[0-9]+$/'],
-            'card_name' => ['required', 'string', 'max:255'],
-            'exp_month' => ['required', 'string', 'size:2', 'regex:/^(0[1-9]|1[0-2])$/'], // String 01-12
-            'exp_year' => ['required', 'string', 'size:2', 'regex:/^[0-9]{2}$/'], // String de 2 dígitos
-            'cvv' => ['required', 'string', 'min:3', 'max:4', 'regex:/^[0-9]+$/'],
-            'amount' => ['sometimes', 'string', 'regex:/^\d+\.\d{2}$/'], // Opcional - se calcula desde el carrito si no viene
-            'currency' => ['sometimes', 'string', 'in:MXN,USD'],
-            'billing_phone' => ['sometimes', 'string', 'max:20'],
-            'billing_email' => ['sometimes', 'email', 'max:255']
+            'card_number'   => ['required', 'string', 'min:13', 'max:19', 'regex:/^[0-9]+$/'],
+            'card_name'     => ['required', 'string', 'max:255'],
+            'exp_month'     => ['required', 'string', 'size:2', 'regex:/^(0[1-9]|1[0-2])$/'],
+            // String 01-12
+            'exp_year'      => ['required', 'string', 'size:2', 'regex:/^[0-9]{2}$/'],
+            // String de 2 dígitos
+            'cvv'           => ['required', 'string', 'min:3', 'max:4', 'regex:/^[0-9]+$/'],
+            'amount'        => ['sometimes', 'string', 'regex:/^\d+\.\d{2}$/'],
+            // Opcional - se calcula desde el carrito si no viene
+            'currency'      => ['sometimes', 'string', 'in:MXN,USD'],
+            'billing_phone' => ['sometimes', 'string', 'max:10'],
+            'billing_email' => ['sometimes', 'email', 'max:255'],
         ]);
 
-        $validator->after(function ($validator) use ($data, $exchangeMinRate, $usdMinRate) {
-            $amount = (float) $data['amount'];
+        $validator->after(function($validator) use ($data) {
+            $exchangeData = (float) App::make(ExchangeRate::class)->execute();
+            $usdMinRate   = (float) Config::get('exchange-rate.min_cart_amount');
+            $amount       = (float) $data['amount'];
+            $exchangeRate = (float) $data['exchange_rate'];
 
-            if ($amount < $exchangeMinRate) {
+            if ($amount < $usdMinRate) {
                 $validator->errors()->add('amount', "El monto mínimo permitido es $" . $usdMinRate . " USD");
+            }
+
+            if ($exchangeRate != $exchangeData) {
+                $validator->errors()
+                    ->add('exchange_rate',
+                        "El tipo de cambio es invalido o sufrió un cambio, refresque e intente nuevamente");
             }
         });
 
@@ -280,18 +289,18 @@ class MitecPaymentService
     /**
      * Guarda el log de la transacción
      *
-     * @param int|null $userId ID del usuario
-     * @param string|null $cartId ID del carrito
-     * @param array $transactionData Datos de transacción
-     * @param array $cardData Datos de tarjeta (sin datos sensibles)
+     * @param int|null    $userId          ID del usuario
+     * @param string|null $cartId          ID del carrito
+     * @param array       $transactionData Datos de transacción
+     * @param array       $cardData        Datos de tarjeta (sin datos sensibles)
      */
     /**
      * Guarda el log de transacción
      *
-     * @param int|null $userId ID del usuario
-     * @param int|null $cartId ID del carrito
-     * @param array $transactionData Datos de transacción
-     * @param array $cardData Datos de tarjeta (sin datos sensibles)
+     * @param int|null $userId          ID del usuario
+     * @param int|null $cartId          ID del carrito
+     * @param array    $transactionData Datos de transacción
+     * @param array    $cardData        Datos de tarjeta (sin datos sensibles)
      */
     protected function saveTransactionLog(?int $userId, ?int $cartId, array $transactionData, array $cardData): void
     {
@@ -299,12 +308,12 @@ class MitecPaymentService
             // Solo logear la información de la transacción
             // El PaymentSession se crea en el controlador para evitar duplicados
             Log::info('Transacción MITEC iniciada', [
-                'user_id' => $userId,
-                'cart_id' => $cartId,
-                'reference' => $transactionData['reference'],
-                'amount' => $transactionData['amount'],
+                'user_id'        => $userId,
+                'cart_id'        => $cartId,
+                'reference'      => $transactionData['reference'],
+                'amount'         => $transactionData['amount'],
                 'card_last_four' => substr($cardData['card_number'], -4),
-                'card_type' => $this->detectCardType($cardData['card_number'])
+                'card_type'      => $this->detectCardType($cardData['card_number']),
             ]);
         } catch (\Exception $e) {
             Log::error('Error logueando transacción', [
@@ -373,7 +382,7 @@ class MitecPaymentService
      */
     protected function generateFakeSuccessForm(string $reference, array $validatedData): string
     {
-        $responseUrl = url('/response.php');
+        $responseUrl = url(Config::get('mitec.response_url'));
         $amount      = $validatedData['amount'];
         $cardLast4   = substr($validatedData['card_number'], -4);
 
@@ -486,30 +495,30 @@ class MitecPaymentService
                 'user_id'               => $userId,
                 'cart_id'               => $cartId,
                 'transaction_reference' => $fakeReference,
-                'amount' => $validatedData['amount'],
-                'currency' => $validatedData['currency'] ?? 'MXN',
-                'status' => 'completed',
-                'payment_method' => 'fake_payment',
-                'metadata' => json_encode([
-                    'fake_mode' => true,
+                'amount'                => $validatedData['amount'],
+                'currency'              => $validatedData['currency'] ?? 'MXN',
+                'status'                => 'completed',
+                'payment_method'        => 'fake_payment',
+                'metadata'              => json_encode([
+                    'fake_mode'      => true,
                     'card_last_four' => substr($validatedData['card_number'], -4),
-                    'card_type' => $this->detectCardType($validatedData['card_number']),
-                    'auth_code' => $fakeResponse['auth_code'],
-                    'transaction_id' => $fakeResponse['transaction_id']
-                ])
+                    'card_type'      => $this->detectCardType($validatedData['card_number']),
+                    'auth_code'      => $fakeResponse['auth_code'],
+                    'transaction_id' => $fakeResponse['transaction_id'],
+                ]),
             ]);
 
             Log::info('PaymentSession fake creada', [
-                'payment_session_id' => $paymentSession->id,
+                'payment_session_id'    => $paymentSession->id,
                 'transaction_reference' => $fakeReference,
-                'user_id' => $userId,
-                'cart_id' => $cartId,
-                'amount' => $validatedData['amount']
+                'user_id'               => $userId,
+                'cart_id'               => $cartId,
+                'amount'                => $validatedData['amount'],
             ]);
         } catch (\Exception $e) {
             Log::error('Error creando PaymentSession fake', [
-                'error' => $e->getMessage(),
-                'reference' => $fakeReference
+                'error'     => $e->getMessage(),
+                'reference' => $fakeReference,
             ]);
         }
 

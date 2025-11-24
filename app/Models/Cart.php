@@ -146,22 +146,36 @@ class Cart extends Model
         }), 2);
     }
 
+    public function discountAmount(): float
+    {
+        /* @var User $user */
+        $user      = $this->user;
+        $hasOrders = $user?->orders()->paid()->exists();
+        $subtotal  = $this->subtotalWithoutDiscount();
+        $discount  = 0;
+
+        if (!$hasOrders && !!Config::get('products.first_buy.active')) {
+            $firstBuyDiscount = Config::get('products.first_buy.discount');
+            $discount         = ($subtotal * $firstBuyDiscount) / 100;
+        }
+
+        return round($discount, 2);
+    }
+
+    public function subtotalWithoutDiscount(): float
+    {
+        return $this->subtotal_items + $this->subtotal_check_out_items;
+    }
+
     /**
      * Calcular subtotal dinámico
      */
     public function getSubtotalAttribute(): float
     {
-        /* @var User $user */
-        $user      = $this->user;
-        $hasOrders = $user?->orders()->paid()->exists();
+        $subtotal = $this->subtotalWithoutDiscount();
+        $discount = $this->discountAmount();
 
-        $subtotal = $this->subtotal_items + $this->subtotal_check_out_items;
-        if (!$hasOrders && !!Config::get('products.first_buy.active')) {
-            $firstBuyDiscount = Config::get('products.first_buy.discount');
-            $subtotal         = $subtotal - ($subtotal * $firstBuyDiscount / 100);
-        }
-
-        return round($subtotal, 2);
+        return round($subtotal - $discount, 2);
     }
 
     /**

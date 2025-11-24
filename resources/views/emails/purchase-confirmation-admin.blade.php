@@ -117,7 +117,7 @@
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Monto Procesado:</span>
-                    <span class="detail-value">${{ number_format($paymentData['amount'] ?? 0, 2) }} {{ $paymentData['currency'] ?? '' }}</span>
+                    <span class="detail-value">${{ number_format($paymentData['amount'] ?? 0, 2) }} {{ $paymentData['currency'] ?? 'MXN' }}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Fecha de Procesamiento:</span>
@@ -138,7 +138,7 @@
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Fecha de Creación:</span>
-                    <span class="detail-value">{{ $order->created_at->format('d/m/Y H:i:s') }}</span>
+                    <span class="detail-value">{{ $order->created_at ? $order->created_at->format('d/m/Y H:i:s') : 'N/A' }}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Estado del Pedido:</span>
@@ -158,7 +158,7 @@
                     <span class="detail-value">{{ $order->paymentResponse->getCardInfo()['display_text'] }}</span>
                 </div>
                 @endif
-                <p class="total"><strong>Total:</strong> ${{ number_format($order->total_amount, 2) }} {{ $order->currency->code ?? 'MXN' }}</p>
+                <p class="total"><strong>Total:</strong> ${{ number_format($order->total_amount * $order->exchange_rate, 2) }} {{ 'MXN' }}</p>
             </div>
 
             <div class="info-box">
@@ -177,7 +177,7 @@
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Fecha de Registro:</span>
-                    <span class="detail-value">{{ $customer->created_at->format('d/m/Y') }}</span>
+                    <span class="detail-value">{{ $customer->created_at ? $customer->created_at->format('d/m/Y') : 'N/A' }}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">País:</span>

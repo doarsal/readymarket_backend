@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App;
+use App\Actions\ExchangeRate;
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -40,30 +43,28 @@ class Order extends Model
         'metadata',
         'cancelled_at',
         'cancellation_reason',
-        'processed_at'
+        'processed_at',
     ];
-
     protected $casts = [
-        'subtotal' => 'decimal:2',
-        'tax_amount' => 'decimal:2',
-        'discount_amount' => 'decimal:2',
-        'total_amount' => 'decimal:2',
-        'refunded_amount' => 'decimal:2',
-        'exchange_rate' => 'decimal:8',
-        'tags' => 'array',
-        'metadata' => 'array',
-        'paid_at' => 'datetime',
-        'refunded_at' => 'datetime',
-        'cancelled_at' => 'datetime',
-        'processed_at' => 'datetime',
-        'exchange_rate_date' => 'datetime'
+        'subtotal'           => 'decimal:2',
+        'tax_amount'         => 'decimal:2',
+        'discount_amount'    => 'decimal:2',
+        'total_amount'       => 'decimal:2',
+        'refunded_amount'    => 'decimal:2',
+        'exchange_rate'      => 'decimal:8',
+        'tags'               => 'array',
+        'metadata'           => 'array',
+        'paid_at'            => 'datetime',
+        'refunded_at'        => 'datetime',
+        'cancelled_at'       => 'datetime',
+        'processed_at'       => 'datetime',
+        'exchange_rate_date' => 'datetime',
     ];
-
     protected $appends = [
         'has_invoice',
         'invoice_info',
         'card_number',
-        'card_type'
+        'card_type',
     ];
 
     /**
@@ -73,7 +74,7 @@ class Order extends Model
     {
         parent::boot();
 
-        static::creating(function ($order) {
+        static::creating(function($order) {
             if (empty($order->order_number)) {
                 $order->order_number = self::generateOrderNumber();
             }
@@ -202,11 +203,11 @@ class Order extends Model
         }
 
         return [
-            'id' => $invoice->id,
+            'id'     => $invoice->id,
             'number' => $invoice->invoice_number,
-            'uuid' => $invoice->uuid,
-            'total' => $invoice->total,
-            'status' => $invoice->status
+            'uuid'   => $invoice->uuid,
+            'total'  => $invoice->total,
+            'status' => $invoice->status,
         ];
     }
 
@@ -226,6 +227,7 @@ class Order extends Model
         }
 
         $cardInfo = $this->paymentResponse->getCardInfo();
+
         return $cardInfo['card_type'] ?? null;
     }
 
@@ -234,14 +236,12 @@ class Order extends Model
      */
     public static function generateOrderNumber(): string
     {
-        $prefix = 'ORD-' . now()->year . '-';
-        $lastOrder = self::where('order_number', 'like', $prefix . '%')
-                        ->orderBy('order_number', 'desc')
-                        ->first();
+        $prefix    = 'ORD-' . now()->year . '-';
+        $lastOrder = self::where('order_number', 'like', $prefix . '%')->orderBy('order_number', 'desc')->first();
 
         if ($lastOrder) {
             $lastNumber = (int) substr($lastOrder->order_number, strlen($prefix));
-            $newNumber = str_pad($lastNumber + 1, 6, '0', STR_PAD_LEFT);
+            $newNumber  = str_pad($lastNumber + 1, 6, '0', STR_PAD_LEFT);
         } else {
             $newNumber = '000001';
         }
@@ -253,17 +253,17 @@ class Order extends Model
     {
         $this->update([
             'payment_status' => 'paid',
-            'paid_at' => now(),
-            'status' => 'processing'
+            'paid_at'        => now(),
+            'status'         => 'processing',
         ]);
     }
 
     public function markAsFulfilled(): void
     {
         $this->update([
-            'status' => 'completed', // Para productos digitales
+            'status'             => 'completed', // Para productos digitales
             'fulfillment_status' => 'fulfilled',
-            'processed_at' => now()
+            'processed_at'       => now(),
         ]);
     }
 
@@ -276,10 +276,10 @@ class Order extends Model
     public function cancel(string $reason = null): void
     {
         $this->update([
-            'status' => 'cancelled',
-            'fulfillment_status' => 'cancelled',
-            'cancelled_at' => now(),
-            'cancellation_reason' => $reason
+            'status'              => 'cancelled',
+            'fulfillment_status'  => 'cancelled',
+            'cancelled_at'        => now(),
+            'cancellation_reason' => $reason,
         ]);
     }
 
@@ -290,8 +290,7 @@ class Order extends Model
 
     public function canBeRefunded(): bool
     {
-        return $this->payment_status === 'paid' &&
-               !in_array($this->status, ['refunded', 'cancelled']);
+        return $this->payment_status === 'paid' && !in_array($this->status, ['refunded', 'cancelled']);
     }
 
     public function getTotalItemsAttribute(): int
@@ -301,7 +300,7 @@ class Order extends Model
 
     public function getStatusLabelAttribute(): string
     {
-        return match($this->status) {
+        return match ($this->status) {
             'pending' => 'Pendiente',
             'processing' => 'Procesando',
             'completed' => 'Completado',
@@ -313,7 +312,7 @@ class Order extends Model
 
     public function getPaymentStatusLabelAttribute(): string
     {
-        return match($this->payment_status) {
+        return match ($this->payment_status) {
             'pending' => 'Pendiente',
             'paid' => 'Pagado',
             'failed' => 'Falló',
@@ -326,132 +325,130 @@ class Order extends Model
 
     /**
      * Crear orden desde carrito
+     * @throws BindingResolutionException
      */
     public static function createFromCart(Cart $cart, array $orderData = []): self
     {
         // Obtener la moneda por defecto de la tienda
         $defaultCurrency = $cart->store->currencies()->wherePivot('is_default', true)->first();
-        $currencyId = $defaultCurrency ? $defaultCurrency->id : 1; // USD por defecto si no se encuentra
+        $currencyId      = $defaultCurrency ? $defaultCurrency->id : 1; // USD por defecto si no se encuentra
 
         // Obtener el tipo de cambio actual si no es USD
-        $exchangeRate = 1.0;
+        $exchangeRate     = App::make(ExchangeRate::class)->execute();
         $exchangeRateDate = now();
 
-        if ($currencyId != 1) { // Si no es USD, buscar tipo de cambio
-            $currentRate = \App\Models\ExchangeRate::where('from_currency_id', 1) // Desde USD
-                ->where('to_currency_id', $currencyId)
-                ->where('is_active', true)
-                ->latest('date')
-                ->first();
-
-            if ($currentRate) {
-                $exchangeRate = $currentRate->rate;
-                $exchangeRateDate = $currentRate->date;
-            }
-        }
+        //if ($currencyId != 1) { // Si no es USD, buscar tipo de cambio
+        //    $currentRate = \App\Models\ExchangeRate::where('from_currency_id', 1) // Desde USD
+        //    ->where('to_currency_id', $currencyId)->where('is_active', true)->latest('date')->first();
+        //
+        //    if ($currentRate) {
+        //        $exchangeRate     = $currentRate->rate;
+        //        $exchangeRateDate = $currentRate->date;
+        //    }
+        //}
 
         $order = self::create(array_merge([
-            'order_number' => self::generateOrderNumber(),
-            'user_id' => $cart->user_id,
-            'cart_id' => $cart->id,
-            'store_id' => $cart->store_id,
+            'order_number'           => self::generateOrderNumber(),
+            'user_id'                => $cart->user_id,
+            'cart_id'                => $cart->id,
+            'store_id'               => $cart->store_id,
             'billing_information_id' => $orderData['billing_information_id'] ?? null,
-            'subtotal' => $cart->subtotal,
-            'tax_amount' => $cart->tax_amount,
-            'total_amount' => $cart->total_amount,
-            'currency_id' => $currencyId,
-            'exchange_rate' => $exchangeRate,
-            'exchange_rate_date' => $exchangeRateDate,
-            'payment_method' => $orderData['payment_method'] ?? null,
-            'payment_gateway' => $orderData['payment_gateway'] ?? null,
-            'notes' => $orderData['notes'] ?? null,
+            'subtotal'               => $cart->subtotal,
+            'tax_amount'             => $cart->tax_amount,
+            'total_amount'           => $cart->total_amount,
+            'currency_id'            => $currencyId,
+            'exchange_rate'          => $exchangeRate,
+            'exchange_rate_date'     => $exchangeRateDate,
+            'payment_method'         => $orderData['payment_method'] ?? null,
+            'payment_gateway'        => $orderData['payment_gateway'] ?? null,
+            'notes'                  => $orderData['notes'] ?? null,
         ], $orderData));
 
         // Crear order_items con SNAPSHOT COMPLETO
         foreach ($cart->items as $cartItem) {
-            $product = $cartItem->product;
+            $product  = $cartItem->product;
             $category = $product->category ?? null;
 
             // SNAPSHOT COMPLETO - TODOS LOS DATOS QUE PUEDEN CAMBIAR
             $order->items()->create([
                 // Product reference
-                'product_id' => $product->idproduct,
+                'product_id'           => $product->idproduct,
 
                 // === COMPLETE PRODUCT SNAPSHOT ===
-                'sku_id' => $product->SkuId,
-                'product_title' => $product->ProductTitle,
-                'product_description' => $product->SkuDescription,
-                'publisher' => $product->Publisher,
-                'segment' => $product->Segment,
-                'market' => $product->Market,
-                'license_duration' => $product->LicenseDuration,
+                'sku_id'               => $product->SkuId,
+                'product_title'        => $product->ProductTitle,
+                'product_description'  => $product->SkuDescription,
+                'publisher'            => $product->Publisher,
+                'segment'              => $product->Segment,
+                'market'               => $product->Market,
+                'license_duration'     => $product->LicenseDuration,
 
                 // Pricing snapshot
-                'unit_price' => $cartItem->unit_price,
-                'list_price' => $product->UnitPrice, // Precio original del producto
-                'discount_amount' => max(0, ($product->UnitPrice ?? 0) - $cartItem->unit_price),
-                'currency_id' => $currencyId, // Foreign key a currencies
+                'unit_price'           => $cartItem->unit_price,
+                'list_price'           => $product->UnitPrice, // Precio original del producto
+                'discount_amount'      => max(0, ($product->UnitPrice ?? 0) - $cartItem->unit_price),
+                'currency_id'          => $currencyId, // Foreign key a currencies
 
                 // Order specific
-                'quantity' => $cartItem->quantity,
-                'line_total' => $cartItem->total_price,
+                'quantity'             => $cartItem->quantity,
+                'line_total'           => $cartItem->total_price,
 
                 // Category snapshot
-                'category_name' => $category ? $category->name : null,
+                'category_name'        => $category ? $category->name : null,
                 'category_id_snapshot' => $category ? $category->id : null,
 
                 // Product flags snapshot
-                'is_top' => (bool) ($product->top ?? false),
-                'is_bestseller' => (bool) ($product->bestseller ?? false),
-                'is_novelty' => (bool) ($product->novelty ?? false),
-                'is_active' => (bool) ($product->is_active ?? true),
+                'is_top'               => (bool) ($product->top ?? false),
+                'is_bestseller'        => (bool) ($product->bestseller ?? false),
+                'is_novelty'           => (bool) ($product->novelty ?? false),
+                'is_active'            => (bool) ($product->is_active ?? true),
 
                 // Complete metadata snapshot
-                'product_metadata' => [
+                'product_metadata'     => [
                     // Core product data
-                    'product_id' => $product->ProductId,
-                    'sku_id' => $product->SkuId,
-                    'market' => $product->Market,
-                    'segment' => $product->Segment,
-                    'publisher' => $product->Publisher,
-                    'language' => $product->Language,
-                    'currency_original' => $product->Currency,
+                    'product_id'          => $product->ProductId,
+                    'sku_id'              => $product->SkuId,
+                    'market'              => $product->Market,
+                    'segment'             => $product->Segment,
+                    'publisher'           => $product->Publisher,
+                    'language'            => $product->Language,
+                    'currency_original'   => $product->Currency,
                     'unit_price_original' => $product->UnitPrice,
 
                     // Categorization
-                    'category_path' => $category ? [
-                        'id' => $category->id,
-                        'name' => $category->name,
-                        'identifier' => $category->identifier
+                    'category_path'       => $category ? [
+                        'id'         => $category->id,
+                        'name'       => $category->name,
+                        'identifier' => $category->identifier,
                     ] : null,
 
                     // Product attributes
-                    'license_duration' => $product->LicenseDuration,
-                    'service_tier' => $product->ServiceTier,
-                    'description' => $product->SkuDescription,
+                    'license_duration'    => $product->LicenseDuration,
+                    'service_tier'        => $product->ServiceTier,
+                    'description'         => $product->SkuDescription,
 
                     // Product status at time of purchase
-                    'was_top' => (bool) ($product->top ?? false),
-                    'was_bestseller' => (bool) ($product->bestseller ?? false),
-                    'was_novelty' => (bool) ($product->novelty ?? false),
-                    'was_active' => (bool) ($product->is_active ?? true),
+                    'was_top'             => (bool) ($product->top ?? false),
+                    'was_bestseller'      => (bool) ($product->bestseller ?? false),
+                    'was_novelty'         => (bool) ($product->novelty ?? false),
+                    'was_active'          => (bool) ($product->is_active ?? true),
 
                     // Store info
-                    'store_id' => $product->store_id,
-                    'store_name' => $cart->store ? $cart->store->name : null,
+                    'store_id'            => $product->store_id,
+                    'store_name'          => $cart->store ? $cart->store->name : null,
                 ],
 
                 'pricing_metadata' => [
-                    'original_price' => $product->UnitPrice,
-                    'sale_price' => $cartItem->unit_price,
-                    'discount_applied' => max(0, ($product->UnitPrice ?? 0) - $cartItem->unit_price),
-                    'discount_percentage' => $product->UnitPrice > 0 ?
-                        round(((($product->UnitPrice ?? 0) - $cartItem->unit_price) / ($product->UnitPrice ?? 1)) * 100, 2) : 0,
-                    'currency_id' => $currencyId,
-                    'exchange_rate' => $exchangeRate,
-                    'exchange_rate_date' => $exchangeRateDate,
-                    'cart_item_metadata' => $cartItem->metadata,
-                ]
+                    'original_price'      => $product->UnitPrice,
+                    'sale_price'          => $cartItem->unit_price,
+                    'discount_applied'    => max(0, ($product->UnitPrice ?? 0) - $cartItem->unit_price),
+                    'discount_percentage' => $product->UnitPrice > 0 ? round(((($product->UnitPrice ?? 0) - $cartItem->unit_price) / ($product->UnitPrice ?? 1)) * 100,
+                        2) : 0,
+                    'currency_id'         => $currencyId,
+                    'exchange_rate'       => $exchangeRate,
+                    'exchange_rate_date'  => $exchangeRateDate,
+                    'cart_item_metadata'  => $cartItem->metadata,
+                ],
             ]);
         }
 

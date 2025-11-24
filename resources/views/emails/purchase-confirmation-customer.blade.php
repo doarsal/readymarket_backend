@@ -154,7 +154,7 @@
             </div>
 
             <div class="amount">
-                Total: ${{ number_format($order->total_amount, 2) }} {{ $order->currency->code ?? 'MXN' }}
+                Total: ${{ number_format($order->total_amount * $order->exchange_rate, 2) }} {{ 'MXN' }}
             </div>
 
             @if($order->subtotal || $order->tax_amount || $order->discount_amount)
