@@ -4,18 +4,15 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
-use App\Models\User;
 use App\Models\EmailVerificationCode;
-use App\Services\CartService;
-use App\Services\UserRegistrationNotificationService;
+use App\Models\User;
 use App\Services\OTPVerificationService;
-use Illuminate\Http\Request;
+use App\Services\UserRegistrationNotificationService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Validator;
 
 /**
  * @OA\Tag(
@@ -26,12 +23,14 @@ use Illuminate\Validation\ValidationException;
 class AuthController extends Controller
 {
     private UserRegistrationNotificationService $notificationService;
-    private OTPVerificationService $otpService;
+    private OTPVerificationService              $otpService;
 
-    public function __construct(UserRegistrationNotificationService $notificationService, OTPVerificationService $otpService)
-    {
+    public function __construct(
+        UserRegistrationNotificationService $notificationService,
+        OTPVerificationService $otpService
+    ) {
         $this->notificationService = $notificationService;
-        $this->otpService = $otpService;
+        $this->otpService          = $otpService;
     }
 
     /**
@@ -73,39 +72,44 @@ class AuthController extends Controller
         // Validar datos
         $request->validate([
             'first_name' => 'required|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => [
+            'last_name'  => 'required|string|max:255',
+            'email'      => 'required|string|email|max:255|unique:users',
+            'password'   => [
                 'required',
                 'string',
                 'min:8',
                 'confirmed',
                 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]+/',
             ],
-            'phone' => [
+            'phone'      => [
                 'required',
                 'string',
                 'regex:/^52[1-9]\d{9}$/', // Formato: 52 + lada (1 dígito) + número (9 dígitos) = 12 dígitos total
             ],
         ], [
-            'password.regex' => 'La contraseña debe contener al menos: 1 mayúscula, 1 minúscula, 1 número y 1 símbolo (@$!%*?&#).',
-            'phone.required' => 'El teléfono es obligatorio.',
-            'phone.regex' => 'El teléfono debe tener el formato: 52 + lada + número',
+            'first_name.required' => 'El nombre es obligatorio.',
+            'last_name.required'  => 'Los apellidos son obligatorios.',
+            'email.required'      => 'El email es obligatorio.',
+            'email.email'         => 'El email es inválido.',
+            'email.unique'        => 'El email ya esta registrado.',
+            'password.regex'      => 'La contraseña debe contener al menos: 1 mayúscula, 1 minúscula, 1 número y 1 símbolo (@$!%*?&#).',
+            'phone.required'      => 'El teléfono es obligatorio.',
+            'phone.regex'         => 'El teléfono debe tener el formato: 52 + lada + número',
         ]);
 
         // Crear usuario con campos de seguridad por defecto
         $user = User::create([
-            'first_name' => $request->first_name,
-            'last_name' => $request->last_name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'phone' => $request->phone,
-            'is_active' => true,
-            'is_verified' => false, // Requiere verificación por OTP
-            'password_changed_at' => now(),
-            'role' => 'user', // Rol por defecto
+            'first_name'            => $request->first_name,
+            'last_name'             => $request->last_name,
+            'email'                 => $request->email,
+            'password'              => Hash::make($request->password),
+            'phone'                 => $request->phone,
+            'is_active'             => true,
+            'is_verified'           => false, // Requiere verificación por OTP
+            'password_changed_at'   => now(),
+            'role'                  => 'user', // Rol por defecto
             'failed_login_attempts' => 0,
-            'created_by_ip' => $request->ip(),
+            'created_by_ip'         => $request->ip(),
         ]);
 
         // Generate and send verification code
@@ -127,7 +131,7 @@ class AuthController extends Controller
         } catch (\Exception $e) {
             Log::error('Error sending OTP code during registration', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ]);
         }
 
@@ -138,20 +142,18 @@ class AuthController extends Controller
             // Log error but don't fail the registration process
             Log::error('Failed to send user registration notifications', [
                 'user_id' => $user->id,
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ]);
         }
 
         // Prepare response message based on OTP status
-        $message = $requiresOtpVerification
-            ? 'Usuario registrado exitosamente. Se ha enviado un código de verificación a tu email y WhatsApp.'
-            : 'Usuario registrado y verificado exitosamente. Ya puedes iniciar sesión.';
+        $message = $requiresOtpVerification ? 'Usuario registrado exitosamente. Se ha enviado un código de verificación a tu email y WhatsApp.' : 'Usuario registrado y verificado exitosamente. Ya puedes iniciar sesión.';
 
         return response()->json([
-            'success' => true,
-            'message' => $message,
-            'user' => new UserResource($user->fresh()),
-            'requires_otp_verification' => $requiresOtpVerification
+            'success'                   => true,
+            'message'                   => $message,
+            'user'                      => new UserResource($user->fresh()),
+            'requires_otp_verification' => $requiresOtpVerification,
         ], 201);
     }
 
@@ -187,7 +189,7 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
+            'email'    => 'required|email',
             'password' => 'required|string',
         ]);
 
@@ -195,7 +197,7 @@ class AuthController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation error',
-                'errors' => $validator->errors()
+                'errors'  => $validator->errors(),
             ], 422);
         }
 
@@ -205,7 +207,7 @@ class AuthController extends Controller
         if (!$user) {
             return response()->json([
                 'success' => false,
-                'message' => 'Datos de acceso incorrectos'
+                'message' => 'Datos de acceso incorrectos',
             ], 401);
         }
 
@@ -213,7 +215,7 @@ class AuthController extends Controller
         if ($user->isLocked()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cuenta temporalmente bloqueada por muchos intentos fallidos. Intenta más tarde.'
+                'message' => 'Cuenta temporalmente bloqueada por muchos intentos fallidos. Intenta más tarde.',
             ], 423);
         }
 
@@ -221,7 +223,7 @@ class AuthController extends Controller
         if (!$user->isActive()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cuenta inactiva. Contacta al administrador.'
+                'message' => 'Cuenta inactiva. Contacta al administrador.',
             ], 423);
         }
 
@@ -240,24 +242,24 @@ class AuthController extends Controller
 
                     Log::info('New OTP sent to returning unverified user', [
                         'user_id' => $user->id,
-                        'email' => $user->email,
-                        'ip' => $request->ip()
+                        'email'   => $user->email,
+                        'ip'      => $request->ip(),
                     ]);
                 } catch (\Exception $e) {
                     Log::error('Failed to send OTP to returning user', [
                         'user_id' => $user->id,
-                        'email' => $user->email,
-                        'error' => $e->getMessage()
+                        'email'   => $user->email,
+                        'error'   => $e->getMessage(),
                     ]);
                 }
             }
 
             return response()->json([
-                'success' => false,
-                'message' => 'Cuenta no verificada. Se ha enviado un código de verificación a tu correo y WhatsApp.',
+                'success'                   => false,
+                'message'                   => 'Cuenta no verificada. Se ha enviado un código de verificación a tu correo y WhatsApp.',
                 'requires_otp_verification' => true,
-                'email' => $user->email,
-                'phone' => $user->phone
+                'email'                     => $user->email,
+                'phone'                     => $user->phone,
             ], 422);
         }
 
@@ -267,15 +269,15 @@ class AuthController extends Controller
 
             // Log intento de login fallido
             Log::warning('Intento de login fallido', [
-                'email' => $request->email,
-                'ip' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-                'failed_attempts' => $user->failed_login_attempts
+                'email'           => $request->email,
+                'ip'              => $request->ip(),
+                'user_agent'      => $request->userAgent(),
+                'failed_attempts' => $user->failed_login_attempts,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Datos de acceso incorrectos'
+                'message' => 'Datos de acceso incorrectos',
             ], 401);
         }
 
@@ -288,9 +290,9 @@ class AuthController extends Controller
         // Check if password needs to be changed
         if ($user->needsPasswordChange()) {
             return response()->json([
-                'success' => false,
-                'message' => 'Cambio de contraseña requerido',
-                'requires_password_change' => true
+                'success'                  => false,
+                'message'                  => 'Cambio de contraseña requerido',
+                'requires_password_change' => true,
             ], 422);
         }
 
@@ -301,16 +303,16 @@ class AuthController extends Controller
 
         // Log login exitoso
         Log::info('Login exitoso', [
-            'user_id' => $user->id,
-            'email' => $user->email,
-            'ip' => request()->ip(),
-            'user_agent' => request()->userAgent()
+            'user_id'    => $user->id,
+            'email'      => $user->email,
+            'ip'         => request()->ip(),
+            'user_agent' => request()->userAgent(),
         ]);
 
         // Merge cart on login (if user has items in session cart)
         try {
             $guestCartToken = request()->header('X-Cart-Token');
-            $cartService = new \App\Services\CartService();
+            $cartService    = new \App\Services\CartService();
             $cartService->mergeCartOnLogin($user->id, $guestCartToken);
 
             // Clean up any duplicate carts for this user
@@ -318,19 +320,19 @@ class AuthController extends Controller
         } catch (\Exception $e) {
             // Log error but don't fail login
             Log::warning('Cart merge failed on login', [
-                'user_id' => $user->id,
+                'user_id'          => $user->id,
                 'guest_cart_token' => request()->header('X-Cart-Token'),
-                'error' => $e->getMessage()
+                'error'            => $e->getMessage(),
             ]);
         }
 
         return response()->json([
             'success' => true,
-            'data' => [
-                'user' => new UserResource($user),
-                'token' => $token
+            'data'    => [
+                'user'  => new UserResource($user),
+                'token' => $token,
             ],
-            'message' => 'Login exitoso'
+            'message' => 'Login exitoso',
         ]);
     }
 
@@ -357,7 +359,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Logout exitoso'
+            'message' => 'Logout exitoso',
         ]);
     }
 
@@ -387,11 +389,11 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => [
-                'user' => new UserResource($user),
+            'data'    => [
+                'user'                  => new UserResource($user),
                 'needs_password_change' => $user->needsPasswordChange(),
             ],
-            'message' => 'Usuario autenticado'
+            'message' => 'Usuario autenticado',
         ]);
     }
 
@@ -425,7 +427,7 @@ class AuthController extends Controller
     {
         $request->validate([
             'current_password' => 'required|string',
-            'password' => 'required|string|min:8|confirmed',
+            'password'         => 'required|string|min:8|confirmed',
         ]);
 
         $user = $request->user();
@@ -434,7 +436,7 @@ class AuthController extends Controller
         if (!Hash::check($request->current_password, $user->password)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Contraseña actual incorrecta'
+                'message' => 'Contraseña actual incorrecta',
             ], 400);
         }
 
@@ -451,7 +453,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Contraseña cambiada exitosamente. Por favor, inicia sesión nuevamente.'
+            'message' => 'Contraseña cambiada exitosamente. Por favor, inicia sesión nuevamente.',
         ]);
     }
 
@@ -479,7 +481,7 @@ class AuthController extends Controller
     {
         $request->validate([
             'email' => 'required|email|exists:users,email',
-            'code' => 'required|string|size:6',
+            'code'  => 'required|string|size:6',
         ]);
 
         $user = User::where('email', $request->email)->first();
@@ -487,14 +489,14 @@ class AuthController extends Controller
         if ($user->is_verified) {
             return response()->json([
                 'success' => false,
-                'message' => 'El email ya está verificado'
+                'message' => 'El email ya está verificado',
             ], 400);
         }
 
         if (EmailVerificationCode::verifyCode($request->email, $request->code)) {
             $user->update([
-                'is_verified' => true,
-                'email_verified_at' => now()
+                'is_verified'       => true,
+                'email_verified_at' => now(),
             ]);
 
             // Update last login info for first verification
@@ -506,22 +508,22 @@ class AuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Email verificado exitosamente',
-                'data' => [
-                    'user' => [
-                        'id' => $user->id,
-                        'name' => $user->full_name,
-                        'email' => $user->email,
-                        'is_verified' => $user->is_verified,
+                'data'    => [
+                    'user'  => [
+                        'id'                => $user->id,
+                        'name'              => $user->full_name,
+                        'email'             => $user->email,
+                        'is_verified'       => $user->is_verified,
                         'email_verified_at' => $user->email_verified_at,
                     ],
-                    'token' => $token
-                ]
+                    'token' => $token,
+                ],
             ]);
         }
 
         return response()->json([
             'success' => false,
-            'message' => 'Código de verificación inválido o expirado'
+            'message' => 'Código de verificación inválido o expirado',
         ], 400);
     }
 
@@ -555,7 +557,7 @@ class AuthController extends Controller
         if ($user->is_verified) {
             return response()->json([
                 'success' => false,
-                'message' => 'El email ya está verificado'
+                'message' => 'El email ya está verificado',
             ], 400);
         }
 
@@ -565,8 +567,8 @@ class AuthController extends Controller
         // TODO: Send email with verification code
 
         return response()->json([
-            'success' => true,
-            'message' => 'Nuevo código de verificación enviado',
+            'success'           => true,
+            'message'           => 'Nuevo código de verificación enviado',
             'verification_code' => $verificationCode, // Remove this in production
         ]);
     }
@@ -595,7 +597,7 @@ class AuthController extends Controller
         $request->validate([
             'email' => 'required|email|exists:users,email',
         ], [
-            'email.exists' => 'No encontramos una cuenta con este correo electrónico.'
+            'email.exists' => 'No encontramos una cuenta con este correo electrónico.',
         ]);
 
         // Generate password reset token
@@ -604,7 +606,7 @@ class AuthController extends Controller
         if (!$user) {
             return response()->json([
                 'success' => false,
-                'message' => 'No encontramos una cuenta con este correo electrónico.'
+                'message' => 'No encontramos una cuenta con este correo electrónico.',
             ], 404);
         }
 
@@ -612,36 +614,33 @@ class AuthController extends Controller
         $token = \Str::random(64);
 
         // Store token in database
-        \DB::table('password_reset_tokens')->updateOrInsert(
-            ['email' => $request->email],
-            [
-                'token' => \Hash::make($token),
-                'created_at' => now()
-            ]
-        );
+        \DB::table('password_reset_tokens')->updateOrInsert(['email' => $request->email], [
+            'token'      => \Hash::make($token),
+            'created_at' => now(),
+        ]);
 
         // Send email using service
         $emailService = new \App\Services\PasswordResetEmailService();
-        $emailSent = $emailService->sendPasswordResetEmail($user, $token);
+        $emailSent    = $emailService->sendPasswordResetEmail($user, $token);
 
         // Log password reset request
         \Log::info('Password reset requested', [
-            'user_id' => $user->id,
-            'email' => $user->email,
+            'user_id'    => $user->id,
+            'email'      => $user->email,
             'email_sent' => $emailSent,
-            'ip' => $request->ip(),
-            'user_agent' => $request->userAgent()
+            'ip'         => $request->ip(),
+            'user_agent' => $request->userAgent(),
         ]);
 
         if ($emailSent) {
             return response()->json([
                 'success' => true,
-                'message' => 'Te hemos enviado un enlace de restablecimiento de contraseña a tu correo electrónico.'
+                'message' => 'Te hemos enviado un enlace de restablecimiento de contraseña a tu correo electrónico.',
             ]);
         } else {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al enviar el correo de recuperación. Por favor intenta de nuevo.'
+                'message' => 'Error al enviar el correo de recuperación. Por favor intenta de nuevo.',
             ], 500);
         }
     }
@@ -674,14 +673,12 @@ class AuthController extends Controller
         ]);
 
         // Find the password reset token
-        $resetToken = \DB::table('password_reset_tokens')
-            ->where('email', $request->email)
-            ->first();
+        $resetToken = \DB::table('password_reset_tokens')->where('email', $request->email)->first();
 
         if (!$resetToken) {
             return response()->json([
                 'success' => false,
-                'message' => 'Token de restablecimiento no válido o expirado.'
+                'message' => 'Token de restablecimiento no válido o expirado.',
             ], 400);
         }
 
@@ -689,13 +686,11 @@ class AuthController extends Controller
         $tokenAge = now()->diffInMinutes($resetToken->created_at);
         if ($tokenAge > 60) {
             // Delete expired token
-            \DB::table('password_reset_tokens')
-                ->where('email', $request->email)
-                ->delete();
+            \DB::table('password_reset_tokens')->where('email', $request->email)->delete();
 
             return response()->json([
                 'success' => false,
-                'message' => 'El token de restablecimiento ha expirado. Solicita uno nuevo.'
+                'message' => 'El token de restablecimiento ha expirado. Solicita uno nuevo.',
             ], 400);
         }
 
@@ -703,7 +698,7 @@ class AuthController extends Controller
         if (!\Hash::check($request->token, $resetToken->token)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Token de restablecimiento no válido.'
+                'message' => 'Token de restablecimiento no válido.',
             ], 400);
         }
 
@@ -713,11 +708,11 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Token válido',
-            'data' => [
-                'user_name' => $user->first_name . ' ' . $user->last_name,
-                'user_email' => $user->email,
-                'token_expires_in_minutes' => 60 - $tokenAge
-            ]
+            'data'    => [
+                'user_name'                => $user->first_name . ' ' . $user->last_name,
+                'user_email'               => $user->email,
+                'token_expires_in_minutes' => 60 - $tokenAge,
+            ],
         ]);
     }
 
@@ -746,24 +741,22 @@ class AuthController extends Controller
     public function resetPassword(Request $request): JsonResponse
     {
         $request->validate([
-            'email' => 'required|email|exists:users,email',
-            'token' => 'required|string',
+            'email'    => 'required|email|exists:users,email',
+            'token'    => 'required|string',
             'password' => 'required|string|min:8|confirmed',
         ], [
-            'email.exists' => 'No encontramos una cuenta con este correo electrónico.',
-            'password.min' => 'La contraseña debe tener al menos 8 caracteres.',
+            'email.exists'       => 'No encontramos una cuenta con este correo electrónico.',
+            'password.min'       => 'La contraseña debe tener al menos 8 caracteres.',
             'password.confirmed' => 'La confirmación de contraseña no coincide.',
         ]);
 
         // Find the password reset token
-        $resetToken = \DB::table('password_reset_tokens')
-            ->where('email', $request->email)
-            ->first();
+        $resetToken = \DB::table('password_reset_tokens')->where('email', $request->email)->first();
 
         if (!$resetToken) {
             return response()->json([
                 'success' => false,
-                'message' => 'Token de restablecimiento no válido o expirado.'
+                'message' => 'Token de restablecimiento no válido o expirado.',
             ], 400);
         }
 
@@ -771,13 +764,11 @@ class AuthController extends Controller
         $tokenAge = now()->diffInMinutes($resetToken->created_at);
         if ($tokenAge > 60) {
             // Delete expired token
-            \DB::table('password_reset_tokens')
-                ->where('email', $request->email)
-                ->delete();
+            \DB::table('password_reset_tokens')->where('email', $request->email)->delete();
 
             return response()->json([
                 'success' => false,
-                'message' => 'El token de restablecimiento ha expirado. Solicita uno nuevo.'
+                'message' => 'El token de restablecimiento ha expirado. Solicita uno nuevo.',
             ], 400);
         }
 
@@ -785,33 +776,31 @@ class AuthController extends Controller
         if (!\Hash::check($request->token, $resetToken->token)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Token de restablecimiento no válido.'
+                'message' => 'Token de restablecimiento no válido.',
             ], 400);
         }
 
         // Update user password
         $user = User::where('email', $request->email)->first();
         $user->update([
-            'password' => \Hash::make($request->password),
+            'password'              => \Hash::make($request->password),
             'force_password_change' => false, // Reset flag if it existed
         ]);
 
         // Delete the token
-        \DB::table('password_reset_tokens')
-            ->where('email', $request->email)
-            ->delete();
+        \DB::table('password_reset_tokens')->where('email', $request->email)->delete();
 
         // Log password reset
         \Log::info('Password reset successful', [
-            'user_id' => $user->id,
-            'email' => $user->email,
-            'ip' => $request->ip(),
-            'user_agent' => $request->userAgent()
+            'user_id'    => $user->id,
+            'email'      => $user->email,
+            'ip'         => $request->ip(),
+            'user_agent' => $request->userAgent(),
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Tu contraseña ha sido restablecida exitosamente.'
+            'message' => 'Tu contraseña ha sido restablecida exitosamente.',
         ]);
     }
 
@@ -845,7 +834,7 @@ class AuthController extends Controller
     public function verifyOTP(Request $request): JsonResponse
     {
         $request->validate([
-            'email' => 'required|email',
+            'email'    => 'required|email',
             'otp_code' => 'required|string|size:6',
         ]);
 
@@ -855,7 +844,7 @@ class AuthController extends Controller
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Usuario no encontrado.'
+                    'message' => 'Usuario no encontrado.',
                 ], 404);
             }
 
@@ -864,7 +853,7 @@ class AuthController extends Controller
             if (!$verified) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Código OTP inválido o expirado.'
+                    'message' => 'Código OTP inválido o expirado.',
                 ], 400);
             }
 
@@ -880,19 +869,18 @@ class AuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Cuenta verificada exitosamente. Sesión iniciada automáticamente.',
-                'user' => new UserResource($user->fresh()),
-                'token' => $token
+                'user'    => new UserResource($user->fresh()),
+                'token'   => $token,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error verifying OTP', [
                 'email' => $request->email,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error interno del servidor. Intenta nuevamente.'
+                'message' => 'Error interno del servidor. Intenta nuevamente.',
             ], 500);
         }
     }
@@ -934,14 +922,14 @@ class AuthController extends Controller
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Usuario no encontrado.'
+                    'message' => 'Usuario no encontrado.',
                 ], 404);
             }
 
             if ($user->is_verified) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Esta cuenta ya está verificada.'
+                    'message' => 'Esta cuenta ya está verificada.',
                 ], 400);
             }
 
@@ -950,24 +938,23 @@ class AuthController extends Controller
             if (!$resent) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Debes esperar antes de solicitar un nuevo código. Intenta en 1 minuto.'
+                    'message' => 'Debes esperar antes de solicitar un nuevo código. Intenta en 1 minuto.',
                 ], 429);
             }
 
             return response()->json([
                 'success' => true,
-                'message' => 'Nuevo código OTP enviado a tu email y WhatsApp.'
+                'message' => 'Nuevo código OTP enviado a tu email y WhatsApp.',
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error resending OTP', [
                 'email' => $request->email,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error interno del servidor. Intenta nuevamente.'
+                'message' => 'Error interno del servidor. Intenta nuevamente.',
             ], 500);
         }
     }
@@ -996,9 +983,9 @@ class AuthController extends Controller
                 ->delete();
 
             return response()->json([
-                'success' => true,
-                'message' => 'Token invalidado correctamente',
-                'invalidated' => $deleted > 0
+                'success'     => true,
+                'message'     => 'Token invalidado correctamente',
+                'invalidated' => $deleted > 0,
             ]);
         } catch (Exception $e) {
             Log::error('Error invalidating password reset token', [
@@ -1008,7 +995,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error interno del servidor'
+                'message' => 'Error interno del servidor',
             ], 500);
         }
     }
