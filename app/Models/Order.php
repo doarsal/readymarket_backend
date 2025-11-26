@@ -45,7 +45,7 @@ class Order extends Model
         'cancellation_reason',
         'processed_at',
     ];
-    protected $casts = [
+    protected $casts    = [
         'subtotal'           => 'decimal:2',
         'tax_amount'         => 'decimal:2',
         'discount_amount'    => 'decimal:2',
@@ -60,7 +60,7 @@ class Order extends Model
         'processed_at'       => 'datetime',
         'exchange_rate_date' => 'datetime',
     ];
-    protected $appends = [
+    protected $appends  = [
         'has_invoice',
         'invoice_info',
         'card_number',
@@ -330,7 +330,7 @@ class Order extends Model
     public static function createFromCart(Cart $cart, array $orderData = []): self
     {
         // Obtener la moneda por defecto de la tienda
-        $defaultCurrency = $cart->store->currencies()->wherePivot('is_default', true)->first();
+        $defaultCurrency = $cart->store?->currencies()->wherePivot('is_default', true)->first();
         $currencyId      = $defaultCurrency ? $defaultCurrency->id : 1; // USD por defecto si no se encuentra
 
         // Obtener el tipo de cambio actual si no es USD
@@ -451,6 +451,90 @@ class Order extends Model
                 ],
             ]);
         }
+
+        $cart->cartCheckOutItems()->with('checkOutItem')->each(function(CartCheckOutItem $cartCheckOutItem) use (
+            $order,
+            $cart,
+            $currencyId,
+            $exchangeRate,
+            $exchangeRateDate
+        ) {
+            if (!$cartCheckOutItem->status) {
+                return;
+            }
+
+            /** @var CheckOutItem $item */
+            $item      = $cartCheckOutItem->checkOutItem;
+            $quantity  = $cartCheckOutItem->quantity;
+            $price     = $item->getPriceWithCart($cart);
+            $unitPrice = round($price / $quantity, 2);
+            $sku       = 'CO' . $item->getKey();
+
+            // SNAPSHOT COMPLETO - TODOS LOS DATOS QUE PUEDEN CAMBIAR
+            $order->items()->create([
+                // Product reference
+                'check_out_item_id'   => $item->getKey(),
+                // === COMPLETE PRODUCT SNAPSHOT ===
+                'sku_id'              => $sku,
+                'product_title'       => $item->item,
+                'product_description' => $item->description,
+
+                // Pricing snapshot
+                'unit_price'          => $unitPrice,
+                'list_price'          => $unitPrice, // Precio original del producto
+                'discount_amount'     => 0,
+                'currency_id'         => $currencyId, // Foreign key a currencies
+
+                // Order specific
+                'quantity'            => $cartCheckOutItem->quantity,
+                'line_total'          => $price,
+
+                // Product flags snapshot
+                'is_top'              => false,
+                'is_bestseller'       => false,
+                'is_novelty'          => false,
+                'is_active'           => true,
+
+                // Complete metadata snapshot
+                'product_metadata'    => [
+                    // Core product data
+                    'product_id'          => $item->getKey(),
+                    'sku_id'              => $sku,
+                    'market'              => null,
+                    'segment'             => null,
+                    'publisher'           => null,
+                    'language'            => null,
+                    'currency_original'   => null,
+                    'unit_price_original' => $unitPrice,
+
+                    // Categorization
+                    'category_path'       => null,
+
+                    // Product attributes
+                    'license_duration'    => null,
+                    'service_tier'        => null,
+                    'description'         => $item->description,
+
+                    // Product status at time of purchase
+                    'was_top'             => false,
+                    'was_bestseller'      => false,
+                    'was_novelty'         => false,
+                    'was_active'          => true,
+                ],
+
+                'pricing_metadata' => [
+                    'original_price'      => $unitPrice,
+                    'sale_price'          => $unitPrice,
+                    'discount_applied'    => 0,
+                    'discount_percentage' => 0,
+                    'currency_id'         => $currencyId,
+                    'exchange_rate'       => $exchangeRate,
+                    'exchange_rate_date'  => $exchangeRateDate,
+                    'cart_item_metadata'  => null,
+                ],
+                'fulfillment_status'  => 'fulfilled',
+            ]);
+        });
 
         return $order;
     }

@@ -5,6 +5,8 @@ namespace App\Services;
 use App;
 use App\Actions\ExchangeRate;
 use App\Models\Cart;
+use App\Models\CartCheckOutItem;
+use App\Models\CheckOutItem;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\PaymentResponse;
@@ -91,6 +93,16 @@ class OrderService
                 $this->createOrderItemFromCartItem($order, $cartItem);
             }
 
+            $cart->cartCheckOutItems()->with('checkOutItem')->each(function(CartCheckOutItem $cartCheckOutItem) use (
+                $order
+            ) {
+                if (!$cartCheckOutItem->status) {
+                    return;
+                }
+
+                $this->createOrderItemFromCheckOutItem($order, $cartCheckOutItem);
+            });
+
             // Actualizar la referencia en PaymentResponse
             $paymentResponse->update(['order_id' => $order->id]);
 
@@ -168,6 +180,40 @@ class OrderService
                 'effective_end_date'   => $product->EffectiveEndDate,
             ],
             'fulfillment_status'   => 'pending', // Cambiar de 'unfulfilled' a 'pending'
+        ]);
+    }
+
+    /**
+     * Crea un item de orden desde un item del checkout
+     */
+    protected function createOrderItemFromCheckOutItem(Order $order, CartCheckOutItem $cartCheckOutItem): OrderItem
+    {
+        /** @var CheckOutItem $item */
+        $item      = $cartCheckOutItem->checkOutItem;
+        $quantity  = $cartCheckOutItem->quantity;
+        $price     = $item->getPriceWithCart($order->cart);
+        $unitPrice = round($price / $quantity, 2);
+        $sku       = 'CO' . $item->getKey();
+
+        return OrderItem::create([
+            'order_id'            => $order->getKey(),
+            'check_out_item_id'   => $item->getKey(),
+            'sku_id'              => $sku,
+            'product_title'       => $item->item,
+            'product_description' => $item->description,
+            'unit_price'          => $unitPrice,
+            'list_price'          => $unitPrice,
+            'discount_amount'     => 0,
+            'currency_id'         => $order->currency_id,
+            'quantity'            => $cartCheckOutItem->quantity,
+            'line_total'          => $price,
+            'is_top'              => false,
+            'is_bestseller'       => false,
+            'is_novelty'          => false,
+            'is_active'           => true,
+            'product_metadata'    => null,
+            'pricing_metadata'    => null,
+            'fulfillment_status'  => 'fulfilled',
         ]);
     }
 

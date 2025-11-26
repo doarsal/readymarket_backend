@@ -320,7 +320,7 @@ class InvoiceService
                 'Cantidad'      => (string) $item->quantity,
                 'ClaveUnidad'   => $defaults['unit_code'] ?? 'E48',
                 'Unidad'        => $defaults['unit'] ?? 'Unidad de servicio',
-                'Descripcion'   => $item->product_title ?? $item->product->ProductTitle ?? 'Producto sin nombre',
+                'Descripcion'   => $item->product_title ?? 'Producto sin nombre',
                 'ValorUnitario' => number_format($itemUnitSubtotal, 2, '.', ''),
                 'Importe'       => number_format($itemSubtotal, 2, '.', ''),
                 'ObjetoImp'     => '02',
