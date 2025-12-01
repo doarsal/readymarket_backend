@@ -5,11 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
-use App\Models\Product;
 use App\Models\ExchangeRate;
+use App\Models\Product;
 use Config;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 
@@ -21,13 +21,14 @@ class CategoryController extends Controller
     private function getStoreCurrencyCode(): string
     {
         $storeId = config('app.store_id', 1);
-        $store = \App\Models\Store::find($storeId);
+        $store   = \App\Models\Store::find($storeId);
 
         if (!$store) {
             return Config::get('app.default_currency'); // Fallback
         }
 
         $defaultCurrency = $store->getDefaultCurrency();
+
         return $defaultCurrency ? $defaultCurrency->code : Config::get('app.default_currency');
     }
 
@@ -42,7 +43,7 @@ class CategoryController extends Controller
 
         // Obtener IDs de las monedas
         $fromCurrencyModel = \App\Models\Currency::where('code', $fromCurrency)->first();
-        $toCurrencyModel = \App\Models\Currency::where('code', $toCurrency)->first();
+        $toCurrencyModel   = \App\Models\Currency::where('code', $toCurrency)->first();
 
         if (!$fromCurrencyModel || !$toCurrencyModel) {
             return $amount; // No se puede convertir
@@ -61,7 +62,8 @@ class CategoryController extends Controller
 
         return $amount * $exchangeRate->rate;
     }
-        /**
+
+    /**
      * @OA\Get(
      *     path="/api/v1/categories",
      *     operationId="getCategories",
@@ -102,15 +104,15 @@ class CategoryController extends Controller
 
         // Validación
         $request->validate([
-            'store_id' => 'nullable|integer|exists:stores,id'
+            'store_id' => 'nullable|integer|exists:stores,id',
         ]);
 
         // Crear cache key único por store
-        $storeId = $request->get('store_id', 'all');
+        $storeId  = $request->get('store_id', 'all');
         $cacheKey = "categories_store_{$storeId}";
 
         // Cache por 1 hora (3600 segundos)
-        $categories = Cache::remember($cacheKey, 3600, function () use ($request) {
+        $categories = Cache::remember($cacheKey, 3600, function() use ($request) {
             $query = Category::active()->ordered();
 
             // Filter by store
@@ -135,9 +137,7 @@ class CategoryController extends Controller
                     $productQuery->where('store_id', $request->store_id);
                 }
 
-                $uniqueProductsCount = $productQuery->groupBy('SkuId', 'Id')
-                    ->get()
-                    ->count();
+                $uniqueProductsCount = $productQuery->groupBy('SkuId', 'Id')->get()->count();
 
                 $category->active_products_count = $uniqueProductsCount;
             }
@@ -147,8 +147,8 @@ class CategoryController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => CategoryResource::collection($categories),
-            'message' => 'Categories retrieved successfully'
+            'data'    => CategoryResource::collection($categories),
+            'message' => 'Categories retrieved successfully',
         ]);
     }
 
@@ -198,21 +198,21 @@ class CategoryController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'image' => 'nullable|string|max:255',
-            'identifier' => 'required|string|max:255|unique:categories',
-            'is_active' => 'boolean',
-            'sort_order' => 'integer|min:0',
-            'columns' => 'integer|min:1|max:12',
-            'description' => 'nullable|string'
+            'name'        => 'required|string|max:255',
+            'image'       => 'nullable|string|max:255',
+            'identifier'  => 'required|string|max:255|unique:categories',
+            'is_active'   => 'boolean',
+            'sort_order'  => 'integer|min:0',
+            'columns'     => 'integer|min:1|max:12',
+            'description' => 'nullable|string',
         ]);
 
         $category = Category::create($validated);
 
         return response()->json([
             'success' => true,
-            'data' => $category,
-            'message' => 'Category created successfully'
+            'data'    => $category,
+            'message' => 'Category created successfully',
         ], 201);
     }
 
@@ -250,14 +250,10 @@ class CategoryController extends Controller
     public function show(Category $category): JsonResponse
     {
         try {
-            // Load products count
-            $category->products_count = $category->products()->count();
-            $category->active_products_count = $category->activeProducts()->count();
-
             // Get all attributes including computed ones
             $categoryData = array_merge($category->getAttributes(), [
-                'products_count' => $category->products_count,
-                'active_products_count' => $category->active_products_count
+                'products_count'        => $category->products()->count(),
+                'active_products_count' => $category->activeProducts()->count()
             ]);
 
             // Increment visits after getting the data
@@ -265,13 +261,13 @@ class CategoryController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $categoryData,
-                'message' => 'Category retrieved successfully'
+                'data'    => $categoryData,
+                'message' => 'Category retrieved successfully',
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error loading category: ' . $e->getMessage()
+                'message' => 'Error loading category: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -333,22 +329,22 @@ class CategoryController extends Controller
     public function update(Request $request, Category $category): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'string|max:255',
-            'image' => 'nullable|string|max:255',
-            'identifier' => ['string', 'max:255', Rule::unique('categories')->ignore($category->id)],
-            'is_active' => 'boolean',
-            'is_deleted' => 'boolean',
-            'sort_order' => 'integer|min:0',
-            'columns' => 'integer|min:1|max:12',
-            'description' => 'nullable|string'
+            'name'        => 'string|max:255',
+            'image'       => 'nullable|string|max:255',
+            'identifier'  => ['string', 'max:255', Rule::unique('categories')->ignore($category->id)],
+            'is_active'   => 'boolean',
+            'is_deleted'  => 'boolean',
+            'sort_order'  => 'integer|min:0',
+            'columns'     => 'integer|min:1|max:12',
+            'description' => 'nullable|string',
         ]);
 
         $category->update($validated);
 
         return response()->json([
             'success' => true,
-            'data' => $category,
-            'message' => 'Category updated successfully'
+            'data'    => $category,
+            'message' => 'Category updated successfully',
         ]);
     }
 
@@ -393,7 +389,7 @@ class CategoryController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Category soft deleted successfully'
+            'message' => 'Category soft deleted successfully',
         ]);
     }
 
@@ -479,11 +475,11 @@ class CategoryController extends Controller
     {
         // Validación
         $request->validate([
-            'store_id' => 'nullable|integer|exists:stores,id',
-            'featured' => 'nullable|boolean',
+            'store_id'    => 'nullable|integer|exists:stores,id',
+            'featured'    => 'nullable|boolean',
             'bestsellers' => 'nullable|boolean',
-            'search' => 'nullable|string|max:255',
-            'per_page' => 'nullable|integer|min:1|max:100'
+            'search'      => 'nullable|string|max:255',
+            'per_page'    => 'nullable|integer|min:1|max:100',
         ]);
 
         $query = $category->activeProducts();
@@ -504,10 +500,10 @@ class CategoryController extends Controller
 
         if ($request->filled('search')) {
             $search = $request->input('search');
-            $query->where(function ($q) use ($search) {
+            $query->where(function($q) use ($search) {
                 $q->where('SkuTitle', 'like', "%{$search}%")
-                  ->orWhere('SkuDescription', 'like', "%{$search}%")
-                  ->orWhere('Publisher', 'like', "%{$search}%");
+                    ->orWhere('SkuDescription', 'like', "%{$search}%")
+                    ->orWhere('Publisher', 'like', "%{$search}%");
             });
         }
 
@@ -518,14 +514,15 @@ class CategoryController extends Controller
             $products = $query->paginate($perPage);
 
             // Procesar los productos para SOBREESCRIBIR los precios originales
-            $processedProducts = $products->getCollection()->map(function ($product) {
-                $convertedPrice = $this->convertCurrency((float)$product->UnitPrice, 'USD', $this->getStoreCurrencyCode());
+            $processedProducts = $products->getCollection()->map(function($product) {
+                $convertedPrice    = $this->convertCurrency((float) $product->UnitPrice, 'USD',
+                    $this->getStoreCurrencyCode());
                 $storeCurrencyCode = $this->getStoreCurrencyCode();
 
                 // SOBREESCRIBIR los campos que usa el frontend
-                $productArray = $product->toArray();
+                $productArray              = $product->toArray();
                 $productArray['UnitPrice'] = number_format($convertedPrice, 2); // El precio que usa el frontend
-                $productArray['Currency'] = $storeCurrencyCode; // La moneda que usa el frontend
+                $productArray['Currency']  = $storeCurrencyCode; // La moneda que usa el frontend
 
                 return $productArray;
             });            // Actualizar la colección de productos procesados
@@ -533,13 +530,13 @@ class CategoryController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $products,
-                'message' => 'Category products retrieved successfully'
+                'data'    => $products,
+                'message' => 'Category products retrieved successfully',
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error loading category products: ' . $e->getMessage()
+                'message' => 'Error loading category products: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -570,14 +567,11 @@ class CategoryController extends Controller
      */
     public function getByStore(int $storeId): JsonResponse
     {
-        $categories = Category::where('store_id', $storeId)
-                            ->where('is_active', true)
-                            ->orderBy('sort_order')
-                            ->get();
+        $categories = Category::where('store_id', $storeId)->where('is_active', true)->orderBy('sort_order')->get();
 
         return response()->json([
             'success' => true,
-            'data' => $categories
+            'data'    => $categories,
         ]);
     }
 
@@ -601,17 +595,17 @@ class CategoryController extends Controller
     public function getStats(): JsonResponse
     {
         $stats = Category::withCount(['products', 'activeProducts'])
-                        ->where('is_active', true)
-                        ->orderBy('products_count', 'desc')
-                        ->get();
+            ->where('is_active', true)
+            ->orderBy('products_count', 'desc')
+            ->get();
 
         return response()->json([
             'success' => true,
-            'data' => [
-                'total_categories' => Category::where('is_active', true)->count(),
+            'data'    => [
+                'total_categories'         => Category::where('is_active', true)->count(),
                 'categories_with_products' => $stats,
-                'most_popular' => $stats->first()
-            ]
+                'most_popular'             => $stats->first(),
+            ],
         ]);
     }
 
@@ -678,15 +672,15 @@ class CategoryController extends Controller
 
         // Validación
         $request->validate([
-            'store_id' => 'nullable|integer|exists:stores,id'
+            'store_id' => 'nullable|integer|exists:stores,id',
         ]);
 
         // Crear cache key único por store
-        $storeId = $request->get('store_id', 'all');
+        $storeId  = $request->get('store_id', 'all');
         $cacheKey = "categories_menu_store_{$storeId}";
 
         // Cache por 30 minutos (1800 segundos)
-        $menuData = Cache::remember($cacheKey, 1800, function () use ($request) {
+        $menuData = Cache::remember($cacheKey, 1800, function() use ($request) {
             $query = Category::active()->ordered();
 
             // Filter by store
@@ -711,13 +705,13 @@ class CategoryController extends Controller
                     'is_top',
                     'is_bestseller',
                     'is_novelty',
-                    'category_id'
+                    'category_id',
                 ])
-                ->where('category_id', $category->id)
-                ->where('is_active', true)
-                ->whereNotNull('Id')
-                ->where('UnitPrice', '>', 0)
-                ->whereNull('deleted_at');
+                    ->where('category_id', $category->id)
+                    ->where('is_active', true)
+                    ->whereNotNull('Id')
+                    ->where('UnitPrice', '>', 0)
+                    ->whereNull('deleted_at');
 
                 // Si hay filtro por tienda, aplicar también a los productos
                 if ($request->filled('store_id')) {
@@ -726,66 +720,66 @@ class CategoryController extends Controller
 
                 // Estrategia de priorización:
                 // 1. Primero obtener productos TOP (máximo 10)
-                $topProducts = (clone $baseQuery)
-                    ->where('is_top', true)
+                $topProducts = (clone $baseQuery)->where('is_top', true)
                     ->distinct()
                     ->orderBy('SkuTitle')
                     ->limit(10)
                     ->get()
-                    ->map(function ($product) {
+                    ->map(function($product) {
                         $product->priority_type = 'top';
+
                         return $product;
                     });
 
-                $products = collect($topProducts);
+                $products       = collect($topProducts);
                 $remainingSlots = 10 - $products->count();
 
                 // 2. Si necesitamos más, agregar BESTSELLERS
                 if ($remainingSlots > 0) {
-                    $bestsellerProducts = (clone $baseQuery)
-                        ->where('is_bestseller', true)
+                    $bestsellerProducts = (clone $baseQuery)->where('is_bestseller', true)
                         ->whereNotIn('SkuId', $products->pluck('SkuId'))
                         ->distinct()
                         ->orderBy('SkuTitle')
                         ->limit($remainingSlots)
                         ->get()
-                        ->map(function ($product) {
+                        ->map(function($product) {
                             $product->priority_type = 'bestseller';
+
                             return $product;
                         });
 
-                    $products = $products->merge($bestsellerProducts);
+                    $products       = $products->merge($bestsellerProducts);
                     $remainingSlots = 10 - $products->count();
                 }
 
                 // 3. Si necesitamos más, agregar NOVELTIES
                 if ($remainingSlots > 0) {
-                    $noveltyProducts = (clone $baseQuery)
-                        ->where('is_novelty', true)
+                    $noveltyProducts = (clone $baseQuery)->where('is_novelty', true)
                         ->whereNotIn('SkuId', $products->pluck('SkuId'))
                         ->distinct()
                         ->orderBy('SkuTitle')
                         ->limit($remainingSlots)
                         ->get()
-                        ->map(function ($product) {
+                        ->map(function($product) {
                             $product->priority_type = 'novelty';
+
                             return $product;
                         });
 
-                    $products = $products->merge($noveltyProducts);
+                    $products       = $products->merge($noveltyProducts);
                     $remainingSlots = 10 - $products->count();
                 }
 
                 // 4. Si aún necesitamos más, completar con productos aleatorios
                 if ($remainingSlots > 0) {
-                    $randomProducts = (clone $baseQuery)
-                        ->whereNotIn('SkuId', $products->pluck('SkuId'))
+                    $randomProducts = (clone $baseQuery)->whereNotIn('SkuId', $products->pluck('SkuId'))
                         ->distinct()
                         ->inRandomOrder()
                         ->limit($remainingSlots)
                         ->get()
-                        ->map(function ($product) {
+                        ->map(function($product) {
                             $product->priority_type = 'random';
+
                             return $product;
                         });
 
@@ -793,15 +787,16 @@ class CategoryController extends Controller
                 }
 
                 // Solo incluir categorías que tengan productos
-                if ($products->count() > 0) {
+                if ($products->count() > 0 || $category->is_landing_page) {
                     $menuCategories[] = [
-                        'id' => $category->id,
-                        'name' => $category->name,
-                        'image' => $category->image,
-                        'identifier' => $category->identifier,
-                        'description' => $category->description,
-                        'products_count' => $products->count(),
-                        'products' => $products->values()
+                        'id'              => $category->id,
+                        'name'            => $category->name,
+                        'image'           => $category->image,
+                        'identifier'      => $category->identifier,
+                        'description'     => $category->description,
+                        'products_count'  => $products->count(),
+                        'products'        => $products->values(),
+                        'is_landing_page' => $category->is_landing_page,
                     ];
                 }
             }
@@ -811,8 +806,8 @@ class CategoryController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $menuData,
-            'message' => 'Menu categories retrieved successfully'
+            'data'    => $menuData,
+            'message' => 'Menu categories retrieved successfully',
         ]);
     }
 }
