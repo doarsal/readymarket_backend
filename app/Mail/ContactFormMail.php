@@ -39,7 +39,7 @@ class ContactFormMail extends Mailable
         return new Content(view: 'emails.contact-form', with: [
                 'name'           => $this->contactData['name'],
                 'email'          => $this->contactData['email'],
-                'companyName'    => $this->contactData['company_name'],
+                'companyName'    => $this->contactData['company_name'] ?? null,
                 'phone'          => $this->contactData['phone'],
                 'subject'        => $this->contactData['subject'],
                 'contactMessage' => $this->contactData['message'],
