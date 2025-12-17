@@ -13,6 +13,22 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('products', function (Blueprint $table) {
+            $table->dropIndex('products_prod_idsperiod_index');
+            $table->dropIndex('products_prod_idsubcategory_index');
+            $table->dropIndex('products_prod_idconfig_index');
+            $table->dropIndex('products_prod_idstore_index');
+            $table->dropIndex('idx_active_store');
+            $table->dropIndex('products_prod_idcurrency_index');
+            $table->dropIndex('products_prod_active_prod_idcategory_index');
+            $table->dropIndex('products_publisher_prod_active_index');
+            $table->dropIndex('products_prod_active_index');
+            $table->dropIndex('idx_publisher_active');
+            $table->dropIndex('products_top_bestseller_slide_novelty_index');
+            $table->dropIndex('products_top_index');
+            $table->dropIndex('products_bestseller_index');
+            $table->dropIndex('products_slide_index');
+            $table->dropIndex('products_novelty_index');
+
             // 1. ELIMINAR campos redundantes/innecesarios (sin tocar índices por ahora)
             $table->dropColumn([
                 'prod_idsperiod',

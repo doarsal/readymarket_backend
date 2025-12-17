@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -16,10 +15,17 @@ return new class extends Migration
         // NO ejecutar esta migración si la tabla ya existe
 
         if (!Schema::hasTable('postalcodes')) {
-            Schema::create('postalcodes', function (Blueprint $table) {
-                $table->unsignedInteger('idpostalcode')->autoIncrement()->primary();
-                $table->char('pc_postalcode', 8)->nullable()->charset('utf8mb3')->collation('utf8mb3_unicode_ci');
-                $table->string('pc_city', 180)->nullable()->charset('utf8mb3')->collation('utf8mb3_unicode_ci');
+            Schema::create('postalcodes', function(Blueprint $table) {
+                $table->unsignedInteger('idpostalcode')->autoIncrement();
+
+                if (DB::connection()->getDriverName() !== 'sqlite') {
+                    $table->char('pc_postalcode', 8)->nullable()->charset('utf8mb3')->collation('utf8mb3_unicode_ci');
+                    $table->string('pc_city', 180)->nullable()->charset('utf8mb3')->collation('utf8mb3_unicode_ci');
+                } else {
+                    $table->char('pc_postalcode', 8)->nullable();
+                    $table->string('pc_city', 180)->nullable();
+                }
+
                 $table->string('pc_state', 45)->nullable();
                 $table->string('pc_countrycode', 3)->nullable();
                 $table->string('pc_culture', 10)->nullable();

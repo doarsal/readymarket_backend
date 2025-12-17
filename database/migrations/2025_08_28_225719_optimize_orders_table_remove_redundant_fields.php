@@ -18,6 +18,7 @@ return new class extends Migration
                   ->comment('Referencia a los datos de facturación');
 
             // Quitar campos redundantes que ya están en users o billing_information
+            $table->dropIndex('orders_customer_email_index');
             $table->dropColumn([
                 'customer_email',     // Ya está en users.email
                 'customer_phone',     // Ya está en billing_information.phone

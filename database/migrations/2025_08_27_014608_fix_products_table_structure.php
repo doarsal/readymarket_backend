@@ -60,7 +60,7 @@ return new class extends Migration
             $table->string('deleted_at', 45)->nullable();
 
             // Primary key
-            $table->primary('idproduct');
+            //$table->primary('idproduct');
 
             // Indexes
             $table->index('prod_idcategory');

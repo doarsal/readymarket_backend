@@ -45,8 +45,6 @@ return new class extends Migration
             $table->timestamps();
 
             // Índices para rendimiento y seguridad
-            $table->index(['user_id', 'is_active'], 'idx_user_active');
-            $table->index(['user_id', 'is_default'], 'idx_user_default');
             $table->unique(['user_id', 'is_default'], 'unique_default_per_user');
         });
     }

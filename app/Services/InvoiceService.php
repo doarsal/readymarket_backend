@@ -52,6 +52,7 @@ class InvoiceService
     public function generateInvoiceFromOrder(Order $order, array $receiverData): Invoice
     {
         try {
+
             // Validate order BEFORE creating any records
             $this->validateOrder($order);
 
@@ -226,7 +227,7 @@ class InvoiceService
 
         // Use totals from database - they are already calculated correctly
 
-        $exchangeRate = floatval($order->exchange_rate ?? 1);
+        $exchangeRate = round(floatval($order->exchange_rate ?? 1), 2);
 
         $totalOrderValue = round($order->total_amount * $exchangeRate, 2);
         $total           = number_format($totalOrderValue, 2, '.', '');
@@ -298,21 +299,41 @@ class InvoiceService
         $defaults = config('facturalo.defaults');
 
         // Get totals from database - these are the authoritative values
-        $exchangeRate    = floatval($order->exchange_rate ?? 1);
-        $totalOrderValue = round($order->total_amount * $exchangeRate, 2);
+        $orderTotal   = $order->total_amount;
+        $exchangeRate = round(floatval($order->exchange_rate ?? 1), 2);
 
-        $taxRate        = $taxes['rate'];
-        $orderSubtotal  = round($totalOrderValue / ($taxRate + 1), 2);
-        $orderTaxAmount = round($orderSubtotal * $taxRate, 2);
+        $taxRate = $taxes['rate'];
+
+        // Apply Exchange Rate to Subtotal and Taxes
+        $orderTotalExchanged = round($orderTotal * $exchangeRate, 2);
+        $orderSubtotal       = round($orderTotalExchanged / (1 + $taxRate), 2);
+        $orderTaxAmount      = $orderTotalExchanged - $orderSubtotal;
 
         // Calculate total from items to use for proportional distribution
-        $itemsTotal = $order->items->sum('line_total') * $exchangeRate;
+        $itemsTotal = $order->items->sum('line_total');
+
+        //Prevention min diff when exchange rate exists
+        $accumulatedSubtotal = 0;
+        $accumulatedTax      = 0;
+        $itemCount           = $order->items->count();
+        $currentIndex        = 0;
 
         foreach ($order->items as $item) {
-            // Calculate proportional subtotal and tax based on order totals
-            $itemRatio        = floatval($item->line_total) / $itemsTotal;
-            $itemSubtotal     = $orderSubtotal * $itemRatio * $exchangeRate;
-            $itemTaxAmount    = $orderTaxAmount * $itemRatio * $exchangeRate;
+            $currentIndex++;
+            $isLastItem = ($currentIndex === $itemCount);
+
+            if ($isLastItem) {
+                $itemSubtotal  = $orderSubtotal - $accumulatedSubtotal;
+                $itemTaxAmount = $orderTaxAmount - $accumulatedTax;
+            } else {
+                $itemRatio     = (float) $item->line_total / $itemsTotal;
+                $itemSubtotal  = round($orderSubtotal * $itemRatio, 2);
+                $itemTaxAmount = round($orderTaxAmount * $itemRatio, 2);
+
+                $accumulatedSubtotal += $itemSubtotal;
+                $accumulatedTax      += $itemTaxAmount;
+            }
+
             $itemUnitSubtotal = $itemSubtotal / $item->quantity;
 
             $concepts[] = [

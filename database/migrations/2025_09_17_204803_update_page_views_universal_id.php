@@ -4,16 +4,21 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
     public function up(): void
     {
-        Schema::table('page_views', function (Blueprint $table) {
+        Schema::table('page_views', function(Blueprint $table) {
+            $table->dropIndex('idx_category_date');
+            $table->dropIndex('idx_product_date');
+
             // Agregar campo universal para ID
-            $table->unsignedBigInteger('resource_id')->nullable()->after('query_params')->comment('ID universal del recurso visitado (producto, categoría, etc.)');
+            $table->unsignedBigInteger('resource_id')
+                ->nullable()
+                ->after('query_params')
+                ->comment('ID universal del recurso visitado (producto, categoría, etc.)');
 
             // Eliminar campos específicos y sus foreign keys
             $table->dropForeign(['category_id']);
@@ -27,7 +32,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('page_views', function (Blueprint $table) {
+        Schema::table('page_views', function(Blueprint $table) {
             // Restaurar campos específicos
             $table->unsignedBigInteger('category_id')->nullable();
             $table->unsignedBigInteger('product_id')->nullable();

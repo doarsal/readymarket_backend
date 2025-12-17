@@ -15,6 +15,10 @@ return new class extends Migration
         // Check if sku_id column exists and drop it
         if (Schema::hasColumn('cart_items', 'sku_id')) {
             Schema::table('cart_items', function (Blueprint $table) {
+                $table->dropIndex(['product_id', 'sku_id']);
+                $table->dropUnique('unique_cart_product_sku');
+                $table->dropIndex('cart_items_sku_id_index');
+                $table->dropIndex('idx_cart_items_product_sku');
                 $table->dropColumn('sku_id');
             });
         }

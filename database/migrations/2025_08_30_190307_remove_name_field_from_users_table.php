@@ -2,18 +2,18 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
     public function up(): void
     {
-        // Migrar datos del campo 'name' a 'first_name' si está vacío
-        DB::statement("
+        if (DB::connection()->getDriverName() === 'mysql') {
+            // Migrar datos del campo 'name' a 'first_name' si está vacío
+            DB::statement("
             UPDATE users
             SET first_name = CASE
                 WHEN first_name IS NULL OR first_name = '' THEN
@@ -31,9 +31,10 @@ return new class extends Migration
             END
             WHERE name IS NOT NULL AND name != ''
         ");
+        }
 
         // Eliminar el campo 'name' ya que es redundante
-        Schema::table('users', function (Blueprint $table) {
+        Schema::table('users', function(Blueprint $table) {
             $table->dropColumn('name');
         });
     }
@@ -44,7 +45,7 @@ return new class extends Migration
     public function down(): void
     {
         // Agregar de vuelta el campo 'name'
-        Schema::table('users', function (Blueprint $table) {
+        Schema::table('users', function(Blueprint $table) {
             $table->string('name')->after('id');
         });
 
