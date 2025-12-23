@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\LicenseResource;
 use App\Models\Subscription;
 use App\Models\MicrosoftAccount;
+use Config;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -402,9 +403,12 @@ class LicenseController extends Controller
     public function cancel(Request $request, int $id): JsonResponse
     {
         try {
+            $daysToCancel = (int) Config::get('orders.days_to_cancel');
+
             // Get subscription with relationships
             $subscription = Subscription::with(['order.user', 'microsoftAccount'])
                 ->where('id', $id)
+                ->whereRaw('DATE_ADD(created_at, INTERVAL ? DAY) >= NOW()', [$daysToCancel])
                 ->firstOrFail();
 
             // Authorization: User must own this subscription

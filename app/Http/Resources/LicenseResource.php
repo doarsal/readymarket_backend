@@ -2,9 +2,10 @@
 
 namespace App\Http\Resources;
 
+use Carbon\Carbon;
+use Config;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Carbon\Carbon;
 
 /**
  * @OA\Schema(
@@ -50,69 +51,71 @@ class LicenseResource extends JsonResource
      * Transform the resource into an array.
      *
      * @param Request $request
+     *
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array
     {
         return [
             // Basic license information
-            'id' => $this->id,
-            'subscription_id' => $this->subscription_id,
+            'id'                                        => $this->id,
+            'subscription_id'                           => $this->subscription_id,
 
             // Product information
-            'product_name' => $this->product?->ProductTitle ?? 'Unknown Product',
-            'sku' => $this->product?->SkuTitle ?? null,
-            'publisher' => $this->product?->Publisher ?? 'Microsoft',
-            'product_icon' => $this->getProductIcon(),
+            'product_name'                              => $this->product?->ProductTitle ?? 'Unknown Product',
+            'sku'                                       => $this->product?->SkuTitle ?? null,
+            'publisher'                                 => $this->product?->Publisher ?? 'Microsoft',
+            'product_icon'                              => $this->getProductIcon(),
 
             // License details
-            'quantity' => $this->quantity,
-            'status' => $this->status == 1 ? 'active' : 'inactive',
-            'status_numeric' => $this->status,
+            'quantity'                                  => $this->quantity,
+            'status'                                    => $this->status == 1 ? 'active' : 'inactive',
+            'status_numeric'                            => $this->status,
 
             // Billing information
-            'billing_plan' => $this->product?->BillingPlan ?? null,
-            'term_duration' => $this->term_duration,
-            'term_duration_readable' => $this->getReadableTermDuration(),
-            'license_type' => $this->getLicenseType(),
-            'transaction_type' => $this->transaction_type,
+            'billing_plan'                              => $this->product?->BillingPlan ?? null,
+            'term_duration'                             => $this->term_duration,
+            'term_duration_readable'                    => $this->getReadableTermDuration(),
+            'license_type'                              => $this->getLicenseType(),
+            'transaction_type'                          => $this->transaction_type,
 
             // Pricing
-            'unit_price' => $this->formatPrice($this->pricing),
-            'total_price' => $this->formatPrice($this->pricing * $this->quantity),
-            'currency' => $this->order?->currency?->code ?? 'MXN',
+            'unit_price'                                => $this->formatPrice($this->pricing),
+            'total_price'                               => $this->formatPrice($this->pricing * $this->quantity),
+            'currency'                                  => $this->order?->currency?->code ?? 'MXN',
 
             // Dates
-            'purchased_at' => $this->created_at?->toIso8601String(),
-            'purchased_at_formatted' => $this->created_at?->format('M d, Y'),
-            'updated_at_formatted' => $this->updated_at?->format('M d, Y H:i'),
-            'effective_start_date' => $this->effective_start_date?->toIso8601String(),
-            'effective_start_date_formatted' => $this->effective_start_date?->format('M d, Y'),
-            'commitment_end_date' => $this->commitment_end_date?->toIso8601String(),
-            'commitment_end_date_formatted' => $this->commitment_end_date?->format('M d, Y'),
-            'cancellation_allowed_until_date' => $this->cancellation_allowed_until_date?->toIso8601String(),
+            'purchased_at'                              => $this->created_at?->toIso8601String(),
+            'purchased_at_formatted'                    => $this->created_at?->format('M d, Y'),
+            'updated_at_formatted'                      => $this->updated_at?->format('M d, Y H:i'),
+            'effective_start_date'                      => $this->effective_start_date?->toIso8601String(),
+            'effective_start_date_formatted'            => $this->effective_start_date?->format('M d, Y'),
+            'commitment_end_date'                       => $this->commitment_end_date?->toIso8601String(),
+            'commitment_end_date_formatted'             => $this->commitment_end_date?->format('M d, Y'),
+            'cancellation_allowed_until_date'           => $this->cancellation_allowed_until_date?->toIso8601String(),
             'cancellation_allowed_until_date_formatted' => $this->cancellation_allowed_until_date?->format('M d, Y'),
-            'auto_renew_enabled' => $this->auto_renew_enabled ?? false,
-            'billing_cycle' => $this->billing_cycle,
-            'can_cancel' => $this->canCancelSubscription(),
-            'can_cancel_with_refund' => $this->canCancelWithRefund(),
-            'days_until_expiration' => $this->getDaysUntilExpiration(),
-            'created_at' => $this->created_at?->toIso8601String(),
-            'updated_at' => $this->updated_at?->toIso8601String(),
+            'auto_renew_enabled'                        => $this->auto_renew_enabled ?? false,
+            'billing_cycle'                             => $this->billing_cycle,
+            'can_cancel'                                => $this->canCancelSubscription(),
+            'can_cancel_with_refund'                    => $this->canCancelWithRefund(),
+            'days_until_expiration'                     => $this->getDaysUntilExpiration(),
+            'created_at'                                => $this->created_at?->toIso8601String(),
+            'updated_at'                                => $this->updated_at?->toIso8601String(),
 
             // Related entities
-            'microsoft_account' => $this->when($this->relationLoaded('microsoftAccount') && $this->microsoftAccount, [
-                'id' => $this->microsoftAccount?->id,
-                'domain' => $this->microsoftAccount?->domain_concatenated,
-                'organization' => $this->microsoftAccount?->organization,
-                'status' => $this->microsoftAccount?->status,
-            ]),
+            'microsoft_account'                         => $this->when($this->relationLoaded('microsoftAccount') && $this->microsoftAccount,
+                [
+                    'id'           => $this->microsoftAccount?->id,
+                    'domain'       => $this->microsoftAccount?->domain_concatenated,
+                    'organization' => $this->microsoftAccount?->organization,
+                    'status'       => $this->microsoftAccount?->status,
+                ]),
 
-            'order' => $this->when($this->relationLoaded('order') && $this->order, [
-                'id' => $this->order?->id,
+            'order'        => $this->when($this->relationLoaded('order') && $this->order, [
+                'id'           => $this->order?->id,
                 'order_number' => $this->order?->order_number,
                 'total_amount' => $this->formatPrice($this->order?->total_amount),
-                'created_at' => $this->order?->created_at?->toIso8601String(),
+                'created_at'   => $this->order?->created_at?->toIso8601String(),
             ]),
 
             // Computed properties
@@ -146,6 +149,7 @@ class LicenseResource extends JsonResource
      * Format price to 2 decimal places
      *
      * @param mixed $price
+     *
      * @return float|null
      */
     private function formatPrice($price): ?float
@@ -200,7 +204,7 @@ class LicenseResource extends JsonResource
         }
 
         $productTitle = strtolower($this->product->ProductTitle ?? '');
-        $billingPlan = $this->product->BillingPlan ?? '';
+        $billingPlan  = $this->product->BillingPlan ?? '';
         $termDuration = $this->product->TermDuration ?? '';
 
         // Check for Azure products
@@ -208,9 +212,11 @@ class LicenseResource extends JsonResource
             if (str_contains($productTitle, 'reserved') || str_contains($productTitle, 'reservation')) {
                 return 'azure_reservation';
             }
-            if (str_contains($productTitle, 'credit') || str_contains($productTitle, 'prepaid') || str_contains($productTitle, 'prepago')) {
+            if (str_contains($productTitle, 'credit') || str_contains($productTitle,
+                    'prepaid') || str_contains($productTitle, 'prepago')) {
                 return 'azure_credit';
             }
+
             return 'azure_plan';
         }
 
@@ -243,9 +249,8 @@ class LicenseResource extends JsonResource
         $licenseType = $this->getLicenseType();
 
         // Only subscription-based licenses are renewable
-        return in_array($billingPlan, ['Monthly', 'Annual', 'Triennial'])
-            && $licenseType === 'subscription'
-            && $this->status == 1;
+        return in_array($billingPlan,
+                ['Monthly', 'Annual', 'Triennial']) && $licenseType === 'subscription' && $this->status == 1;
     }
 
     /**
@@ -270,14 +275,13 @@ class LicenseResource extends JsonResource
 
         try {
             return [
-                'next_renewal_date' => $this->next_renewal_date,
+                'next_renewal_date'           => $this->next_renewal_date,
                 'next_renewal_date_formatted' => $this->commitment_end_date?->format('M d, Y H:i'),
-                'days_until_renewal' => $this->days_until_renewal,
-                'auto_renew_enabled' => $this->auto_renew_enabled ?? false,
-                'renewal_term' => $this->renewal_frequency, // "Mensual", "Anual", etc
-                'expiration_info' => $this->expiration_info, // Human-readable message
+                'days_until_renewal'          => $this->days_until_renewal,
+                'auto_renew_enabled'          => $this->auto_renew_enabled ?? false,
+                'renewal_term'                => $this->renewal_frequency, // "Mensual", "Anual", etc
+                'expiration_info'             => $this->expiration_info, // Human-readable message
             ];
-
         } catch (\Exception $e) {
             return null;
         }
@@ -288,6 +292,7 @@ class LicenseResource extends JsonResource
      *
      * @param Carbon $startDate
      * @param string $termDuration
+     *
      * @return Carbon
      */
     private function calculateRenewalDate(Carbon $startDate, string $termDuration): Carbon
@@ -365,11 +370,12 @@ class LicenseResource extends JsonResource
 
         // Calculate calendar days since purchase (not business days)
         $daysSincePurchase = $purchaseDate->diffInDays(now());
+        $daysToCancel      = (int) Config::get('orders.days_to_cancel');
 
         // PERPETUAL SOFTWARE: Can only cancel within 30 days WITH refund
         // After 30 days: Cannot cancel at all (it's a one-time purchase)
         if ($licenseType === 'perpetual') {
-            return $daysSincePurchase <= 30;
+            return $daysSincePurchase <= $daysToCancel;
         }
 
         // SUBSCRIPTIONS: Can ALWAYS cancel (even after 7 days)
@@ -392,7 +398,6 @@ class LicenseResource extends JsonResource
             return false;
         }
 
-        $licenseType = $this->getLicenseType();
         $purchaseDate = $this->effective_start_date ?? $this->created_at;
 
         if (!$purchaseDate) {
@@ -401,10 +406,11 @@ class LicenseResource extends JsonResource
 
         $daysSincePurchase = $purchaseDate->diffInDays(now());
 
+        //$licenseType  = $this->getLicenseType();
         // Perpetual: Full refund within 30 days
-        if ($licenseType === 'perpetual') {
-            return $daysSincePurchase <= 30;
-        }
+        //if ($licenseType === 'perpetual') {
+        //    return $daysSincePurchase <= 30;
+        //}
 
         // Subscriptions: Prorated refund within cancellation window
         // Priority 1: Microsoft's provided cancellation deadline
@@ -412,8 +418,10 @@ class LicenseResource extends JsonResource
             return now()->lte($this->cancellation_allowed_until_date);
         }
 
-        // Priority 2: 7 calendar days from purchase (NCE policy)
-        return $daysSincePurchase <= 7;
+        $daysToCancel = (int) Config::get('orders.days_to_cancel');
+
+        // Priority 2: 5 calendar days from purchase (NCE policy)
+        return $daysSincePurchase <= $daysToCancel;
     }
 
     /**
