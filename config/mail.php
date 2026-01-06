@@ -115,4 +115,7 @@ return [
         'name' => env('MAIL_FROM_NAME', 'Example'),
     ],
 
+    'notification_contacts' => [
+        'amex_new_client' => env('AMEX_NEW_CLIENTS_NOTIFICATION_EMAILS', 'info@readymind.ms'),
+    ]
 ];

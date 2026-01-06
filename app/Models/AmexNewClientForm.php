@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Observers\AmexNewClientFormObserver;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -47,6 +49,7 @@ use Illuminate\Database\Eloquent\Model;
  * @OA\Property(property="created_at", type="string", format="date-time", example="2025-03-01T10:30:00Z")
  * @OA\Property(property="updated_at", type="string", format="date-time", example="2025-03-01T10:35:00Z")
  */
+#[ObservedBy(AmexNewClientFormObserver::class)]
 class AmexNewClientForm extends Model
 {
     use HasFactory;
