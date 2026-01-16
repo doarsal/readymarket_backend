@@ -169,7 +169,7 @@ class InvoiceController extends Controller
                     'rfc' => $billing->rfc,
                     'name' => $billing->organization,
                     'postal_code' => $billing->postal_code,
-                    'tax_regime' => $billing->taxRegime ? $billing->taxRegime->code : '616',
+                    'tax_regime' => $billing->taxRegime ? $billing->taxRegime->sat_code : '616',
                     'cfdi_use' => $billing->cfdiUsage ? $billing->cfdiUsage->code : 'S01'
                 ];
             }
