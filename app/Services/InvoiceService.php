@@ -110,7 +110,9 @@ class InvoiceService
             ]);
 
             // Send error notifications for any exception
-            $this->sendInvoiceErrorNotifications($order, $e->getMessage(), [], $receiverData);
+            if ($withErrorNotification) {
+                $this->sendInvoiceErrorNotifications($order, $e->getMessage(), [], $receiverData);
+            }
 
             throw $e;
         }
