@@ -49,8 +49,11 @@ class InvoiceService
     /**
      * Generate invoice from order
      */
-    public function generateInvoiceFromOrder(Order $order, array $receiverData): Invoice
-    {
+    public function generateInvoiceFromOrder(
+        Order $order,
+        array $receiverData,
+        ?bool $withErrorNotification = true
+    ): Invoice {
         try {
 
             // Validate order BEFORE creating any records
@@ -91,8 +94,10 @@ class InvoiceService
                     'receiver_data' => $receiverData,
                 ]);
 
-                // Send error notifications
-                $this->sendInvoiceErrorNotifications($order, $errorMessage, $response, $receiverData);
+                if ($withErrorNotification) {
+                    // Send error notifications
+                    $this->sendInvoiceErrorNotifications($order, $errorMessage, $response, $receiverData);
+                }
 
                 throw new Exception($errorMessage);
             }
